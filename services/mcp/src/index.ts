@@ -27,6 +27,7 @@ import {
   listTokens,
   revokeToken,
 } from "./admin/handlers.js";
+import { renderAdminPage } from "./admin/index.html.js";
 import { loadConfig } from "./config.js";
 import { createCh, createPg } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
@@ -94,11 +95,35 @@ async function main() {
     }),
   );
 
-  // ─── Admin REST API ─────────────────────────────────────────
+  // ─── Admin REST API + HTML ──────────────────────────────────
   // Vlastiti auth (ADMIN_API_KEY Bearer), NE OAuth. Ako ADMIN_API_KEY nije set,
   // middleware vraća 404 za sve /admin* → admin disabled.
+  //
+  // HTML /admin sam po sebi NIJE Bearer-protected — browser GET ne nosi header.
+  // Sve data-fetch radi inline <script> preko Bearer-a iz localStorage-a, što
+  // svaki /admin/api/* call zaštićuje. HTML 404-a se kad admin nije configured.
   const requireAdmin = makeRequireAdmin(config.adminApiKey);
   const adminDeps = { pg };
+  app.get("/admin", (req: Request, res: Response) => {
+    if (!config.adminApiKey) {
+      res.status(404).end();
+      return;
+    }
+    const nonce = randomUUID().replace(/-/g, "");
+    res.set(
+      "Content-Security-Policy",
+      [
+        "default-src 'self'",
+        `script-src 'nonce-${nonce}'`,
+        "style-src 'self' 'unsafe-inline'",
+        "connect-src 'self'",
+        "img-src 'self' data:",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+      ].join("; "),
+    );
+    res.type("html").send(renderAdminPage(nonce));
+  });
   app.get("/admin/api/stats", requireAdmin, (req, res) => {
     void getStats(adminDeps, req, res).catch((err) => {
       console.error("[admin] stats failed:", err);
