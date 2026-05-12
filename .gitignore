@@ -1,0 +1,48 @@
+# Secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+.npm
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# macOS
+.DS_Store
+._*
+
+# Docker volumes (when bind-mounted locally)
+data/
+.data/
+volumes/
+
+# Build outputs
+build/
+out/
+
+# Logs
+*.log
+logs/
+
+# Coolify managed files (if syncing)
+.coolify/
