@@ -1,12 +1,11 @@
-# Bootstrap docker-compose skelet — servisi su 🚧 stub
-# Implementacija: vidi sibling repo plan §9
-# https://github.com/domovinatv/fetch.domovina.tv/blob/main/docs/rag_clickhouse_postgres_plan.md#9-coolify-deployment-plan
-
-version: "3.9"
+# Stack za domovina-rag.
+# Plan: ../../fetch.domovina.tv/docs/rag_clickhouse_postgres_plan.md §9
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector image dodaje `vector` extension (potrebno za infra/postgres/init.sql).
+    # Vanilla postgres:16-alpine nema pgvector pa init script fail-a.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}

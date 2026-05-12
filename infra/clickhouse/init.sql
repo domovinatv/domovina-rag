@@ -1,5 +1,11 @@
 -- ClickHouse initial schema — Faza 1 minimal
 -- Full schema u plan §4: vidi sibling repo
+--
+-- Bilješka: docker-entrypoint pokreće ovaj fajl kao raw query bez --database,
+-- pa bi nekvalificirani CREATE TABLE-ovi otišli u `default` DB. Eksplicitni
+-- USE statement osigurava da sve ide u CLICKHOUSE_DB (po convention-u `rag`).
+CREATE DATABASE IF NOT EXISTS rag;
+USE rag;
 
 -- ─── RAG chunks (primarni vector store) ────────────────────
 CREATE TABLE IF NOT EXISTS rag_chunks (
