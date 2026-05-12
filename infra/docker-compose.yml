@@ -1,5 +1,11 @@
 # Stack za domovina-rag.
 # Plan: ../../fetch.domovina.tv/docs/rag_clickhouse_postgres_plan.md §9
+#
+# Project name = prefix za sve resource imena (containers, networks, volumes).
+# Bez ovoga, default je naziv parent direktorija (`infra`), pa bi sve bilo
+# `infra-postgres-1` itd. Na Coolifyju (i lokalno kad runa-š više app-ova
+# paralelno), `domovina-rag-infra-*` jasno označava ovu stack-u.
+name: domovina-rag-infra
 
 services:
   postgres:
