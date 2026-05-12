@@ -191,6 +191,34 @@ curl -X DELETE -H "Authorization: Bearer $ADMIN_API_KEY" https://mcp.domovina.ai
 
 Admin auth je **odvojen** od OAuth Bearer-a klijenata — admin operacije nisu protected-resource pristup nego authorization-server management. `static-api-key` klijent je zaštićen od DELETE-a (vraća 403).
 
+### Rate limiting
+
+Per OAuth `client_id` sliding window, in-memory. Sve protected requests na `/mcp` nose:
+
+- `X-RateLimit-Limit-{Minute,Hour}` i `X-RateLimit-Remaining-{Minute,Hour}` headers
+- Kad se probije: `429` + `Retry-After: <sec>` + JSON `{"error":"rate_limit_exceeded","scope":"per_minute","retry_after_seconds":N}`
+
+Defaultni limiti (env): `RATE_LIMIT_PER_MINUTE=60`, `RATE_LIMIT_PER_HOUR=1000`. `static-api-key` je exempt. Counters resetiraju na restart (acceptable za solo deploy).
+
+### OAuth GC cron
+
+In-process scheduler (setInterval) koji čisti expired stanje:
+
+- `oauth_access_tokens` — uvijek `expires_at < now()`
+- `oauth_refresh_tokens` — starije od `OAUTH_GC_RETENTION_DAYS` (default 90)
+- `oauth_authorization_codes` — `expires_at < now() - 1 day`
+- `oauth_audit_log` — starije od retention prozora
+
+Prvi run 60s nakon starta, dalje svakih `OAUTH_GC_INTERVAL_HOURS` (default 24). Admin endpoints:
+
+```bash
+# Status — last run + next scheduled
+curl -H "Authorization: Bearer $ADMIN_API_KEY" https://mcp.domovina.ai/admin/api/gc
+
+# Manual trigger
+curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" https://mcp.domovina.ai/admin/api/gc/run
+```
+
 ## Struktura repo-a
 
 ```
