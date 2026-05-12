@@ -155,22 +155,31 @@ Project i environment već postoje:
 - Environment UUID: `p61gjclkyz58fmdkd0owxqk8`
 - URL: `https://app.domovina.link/project/px79sl4tx5o2ehbk5kpgbxp0/environment/p61gjclkyz58fmdkd0owxqk8/new`
 
-### Koraci u Coolify UI
+### Koraci u Coolify UI (verificirano 2026-05-12, deploy uspio)
 
-- [ ] **Add resource** → **Docker Compose** → izvor: **Public Repository**
-- [ ] Repository URL: `https://github.com/domovinatv/domovina-rag`
-- [ ] Branch: `main`
-- [ ] **Build pack**: Docker Compose
-- [ ] **Base Directory**: `/` (root repo-a)
-- [ ] **Docker Compose Location**: `/infra/docker-compose.yml`
-- [ ] **Docker Compose Custom Start Command**:
-  ```
-  docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml --profile full up -d
-  ```
-- [ ] **Docker Compose Custom Build Command**:
-  ```
-  docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml --profile full build
-  ```
+- [x] **Add resource** → **Docker Compose** → izvor: **Public Repository**
+- [x] Repository URL: `https://github.com/domovinatv/domovina-rag`
+- [x] Branch: `main`
+- [x] **Build pack**: Docker Compose (auto-detected)
+- [x] **Base Directory**: `/` (root repo-a)
+- [x] **Docker Compose Location**: `/docker-compose.yml` (compose je na repo root-u, NE `/infra/`)
+- [x] Custom Build/Start Command — **OSTAVI PRAZNO**. Coolify radi `docker compose up -d` default-ano; profili su uklonjeni iz base compose-a pa sve auto-startuje.
+
+### Domain — Coolify-native auto-Traefik (BEZ prod.yml override-a)
+
+- [x] **Configuration → General → Domains for mcp**: `http://mcp.domovina.ai`
+  - **Bitno**: `http://` prefix (NE `https://`) — s `https://` + CF Tunnel-om dolazi do redirect loop-a (Coolify Traefik 301 → https, CF re-forwarda HTTP → loop).
+  - TLS rješava Cloudflare edge; Traefik unutar Coolify-ja samo radi Host header routing na HTTP-u.
+- [x] **Configuration → Advanced → Force Https**: OFF (ili `http://` u domeni preskoči redirect middleware)
+
+Coolify auto-generira Traefik labels:
+```
+- traefik.enable=true
+- traefik.http.routers.http-0-{uuid}-mcp.rule=Host(`mcp.domovina.ai`) && PathPrefix(`/`)
+- traefik.http.routers.http-0-{uuid}-mcp.entryPoints=http
+```
+
+Port (3000) Traefik auto-discover-a iz `EXPOSE 3000` direktive u `services/mcp/Dockerfile`.
 
 ### Environment variables (Coolify UI → Environment Variables tab)
 
@@ -179,7 +188,7 @@ Generiraj jake passwords/keys u terminalu:
 openssl rand -base64 32 | tr -d '/=+' | cut -c1-32   # pokreni 3x za 3 različite
 ```
 
-Postavi:
+Set u Coolify UI:
 ```
 POSTGRES_DB=rag
 POSTGRES_USER=rag_user
@@ -189,45 +198,57 @@ CLICKHOUSE_USER=rag_user
 CLICKHOUSE_PASSWORD=<random 32 char>
 MCP_AUTH_MODE=api_key
 MCP_API_KEY=<random 32 char>
+MCP_PORT=3000
 EMBEDDER_MODEL=BAAI/bge-m3
-# NE postavljaj: DATA_SOURCE_DIR (samo ETL/local), EMBEDDER_URL (defaultira na container),
-#                EMBEDDER_DEVICE (override u prod.yml = cpu)
+EMBEDDER_DEVICE=cpu                       # NE mps na Linux/Coolify
+DATA_SOURCE_DIR=/tmp                      # placeholder, ETL profile=etl nije aktiviran
 ```
 
 Sve označi kao **Build Time = OFF, Runtime = ON** (Coolify default OK).
 
 ### Deploy
 
-- [ ] Pritisni **Deploy** u Coolify UI
-- [ ] Pratiti deploy logove (Coolify → Logs tab):
-  - PG, CH up u ~10-15s
-  - Embedder boot ~2-5 min (CPU first download bge-m3 ~2 GB iz HF do `hf_cache` volume-a)
+- [x] Pritisni **Deploy** u Coolify UI
+- [x] Pratiti deploy logove (Coolify → Logs tab):
+  - Image pull (PG, CH) + build (embedder, mcp, etl) — ~3-5 min ukupno
+  - PG up u ~10s
+  - **CH može fail-ati na first boot** — init.sql timing issue. Fix: **Redeploy**, drugi pokušaj radi (volume već inicijaliziran).
+  - Embedder boot ~3-5 min (first-time bge-m3 ~2 GB download iz HF do `hf_cache` volume-a)
   - MCP healthy u <30s
-- [ ] Verificiraj iz UI-a da su svi container-i **Running**
+- [x] Verificiraj svih container statuse zelene u Coolify UI Resources view-u
 
-## Faza 4b — Cloudflare Tunnel route za mcp.domovina.ai
+## Faza 4b — Cloudflare Tunnel route za mcp.domovina.ai ✅ (verificirano 2026-05-12)
 
 Tvoj CF Tunnel: `01a25a60-6819-4e7b-b661-b1ce34bb588d`
 
-- [ ] CF dashboard → Zero Trust → Networks → Tunnels → odaberi tvoj tunel → **Public Hostname**
-- [ ] **Add a public hostname**:
+- [x] CF dashboard → Zero Trust → Networks → Tunnels → odaberi tunel → **Public Hostname**
+- [x] **Add a public hostname**:
   ```
   Subdomain: mcp
-  Domain: domovina.ai           (zone treba postojati u istom CF accountu)
+  Domain: domovina.ai
   Type: HTTP
-  URL: traefik:80
+  URL: <isti pattern kao tvoji drugi Coolify servisi — npr. traefik:80>
   ```
-  (Ili koji god service:port već koristiš za druge Coolify servise — najvjerojatnije isti.)
-- [ ] **Additional application settings → HTTP Settings → HTTP Host Header**: `mcp.domovina.ai` (osigurava Traefik da match-a Host rule iz prod.yml-a)
-- [ ] **Save hostname**
+- [x] **Save hostname**
 
 DNS record (`mcp.domovina.ai` CNAME → tunnel) Cloudflare auto-kreira.
 
-- [ ] Verificiraj iz vana:
-  ```bash
-  curl -I https://mcp.domovina.ai/health
-  # Očekivano: 200 OK ili 401 (ako health zahtjeva auth — provjeri MCP server)
-  ```
+**Verifikacija iz vana:**
+```bash
+curl -I https://mcp.domovina.ai/health
+# Očekivano: HTTP/2 200, {"status":"ok","service":"domovina-podcast","version":"0.1.0"}
+
+curl -i -m 3 -H "Authorization: Bearer YOUR_MCP_API_KEY" https://mcp.domovina.ai/sse | head -15
+# Očekivano: HTTP/2 200, content-type: text/event-stream, event: endpoint
+```
+
+### Troubleshooting koji se desio u prvom deployu
+
+| Simptom | Uzrok | Fix |
+|---|---|---|
+| `unable to prepare context: path "/artifacts/services/embedder" not found` | Compose file u `infra/` + Coolify `--project-directory` = repo root → relative paths se resolvaju krivo | **Premjesti compose na repo root** (`/docker-compose.yml`), path-ovi `./services/...` rade kako treba |
+| `dependency failed to start: clickhouse is unhealthy` | CH init.sql timing issue na first boot s praznim volume-om | **Redeploy** — drugi pokušaj radi (volume već inicijaliziran) |
+| `Too many redirects` na `https://mcp.domovina.ai` | Coolify "Force Https" + CF Tunnel HTTP forward → 301 loop | **`http://` u Domain field-u** (NE `https://`); ili **Advanced → Force Https OFF** |
 
 ## Faza 5 — Restore podataka u cloud CH
 
