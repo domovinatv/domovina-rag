@@ -22,12 +22,15 @@ import { makeRequireAdmin } from "./admin-auth.js";
 import {
   deleteClient,
   getAuditLog,
+  getGcStatus,
   getStats,
   listClients,
   listTokens,
   revokeToken,
+  triggerGc,
 } from "./admin/handlers.js";
 import { renderAdminPage } from "./admin/index.html.js";
+import { scheduleOAuthGc } from "./gc.js";
 import { loadConfig } from "./config.js";
 import { createCh, createPg } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
@@ -58,6 +61,13 @@ async function main() {
 
   // Seedaj static API key kao PG record (idempotent) — audit log radi za njega isto.
   await oauthProvider.seedStaticApiKey();
+
+  // OAuth GC cron — periodic cleanup expired tokens, codes, audit retention.
+  // setInterval.unref() unutar scheduleOAuthGc → ne drži event loop.
+  scheduleOAuthGc(pg, {
+    intervalHours: config.oauthGcIntervalHours,
+    retentionDays: config.oauthGcRetentionDays,
+  });
 
   const app = express();
 
@@ -104,7 +114,7 @@ async function main() {
   // Sve data-fetch radi inline <script> preko Bearer-a iz localStorage-a, što
   // svaki /admin/api/* call zaštićuje. HTML 404-a se kad admin nije configured.
   const requireAdmin = makeRequireAdmin(config.adminApiKey);
-  const adminDeps = { pg };
+  const adminDeps = { pg, oauthGcRetentionDays: config.oauthGcRetentionDays };
   app.get("/admin", (req: Request, res: Response) => {
     if (!config.adminApiKey) {
       res.status(404).end();
@@ -142,6 +152,8 @@ async function main() {
   app.get("/admin/api/tokens", requireAdmin, wrap("listTokens", listTokens));
   app.delete("/admin/api/tokens/:prefix", requireAdmin, wrap("revokeToken", revokeToken));
   app.get("/admin/api/audit", requireAdmin, wrap("getAuditLog", getAuditLog));
+  app.get("/admin/api/gc", requireAdmin, wrap("getGcStatus", getGcStatus));
+  app.post("/admin/api/gc/run", requireAdmin, wrap("triggerGc", triggerGc));
 
   const bearer = requireBearerAuth({ verifier: oauthProvider });
 

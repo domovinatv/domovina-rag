@@ -27,6 +27,9 @@ export interface Config {
   // Rate limiting per client_id (in-memory sliding window).
   rateLimitPerMinute: number;
   rateLimitPerHour: number;
+  // OAuth GC cron.
+  oauthGcIntervalHours: number;
+  oauthGcRetentionDays: number;
 }
 
 export function loadConfig(): Config {
@@ -58,5 +61,7 @@ export function loadConfig(): Config {
     adminApiKey: process.env.ADMIN_API_KEY || null,
     rateLimitPerMinute: parseInt(optional("RATE_LIMIT_PER_MINUTE", "60"), 10),
     rateLimitPerHour: parseInt(optional("RATE_LIMIT_PER_HOUR", "1000"), 10),
+    oauthGcIntervalHours: parseInt(optional("OAUTH_GC_INTERVAL_HOURS", "24"), 10),
+    oauthGcRetentionDays: parseInt(optional("OAUTH_GC_RETENTION_DAYS", "90"), 10),
   };
 }

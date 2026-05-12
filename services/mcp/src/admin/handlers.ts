@@ -8,10 +8,13 @@
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 
+import { getLastGcResult, getNextGcRunAt, runOAuthGc } from "../gc.js";
+
 const STATIC_KEY_CLIENT_ID = "static-api-key";
 
 export interface AdminDeps {
   pg: Pool;
+  oauthGcRetentionDays: number;
 }
 
 // ───────────────────── /admin/api/stats ─────────────────────
@@ -249,4 +252,24 @@ export async function getAuditLog(deps: AdminDeps, req: Request, res: Response):
     })),
     next_before_id: r.rowCount === limit ? nextBeforeId : null,
   });
+}
+
+// ───────────────────── /admin/api/gc ─────────────────────
+
+export async function getGcStatus(_deps: AdminDeps, _req: Request, res: Response): Promise<void> {
+  res.json({
+    last_run: getLastGcResult(),
+    next_run_at: getNextGcRunAt()?.toISOString() ?? null,
+  });
+}
+
+export async function triggerGc(deps: AdminDeps, _req: Request, res: Response): Promise<void> {
+  // Manual trigger — istih queryja kao scheduled run, ne mijenja scheduler.
+  // Korisno za smoke test ili nakon manual data manipulacije.
+  const r = await runOAuthGc(deps.pg, deps.oauthGcRetentionDays);
+  if (r.error) {
+    res.status(500).json({ error: "gc_failed", detail: r.error, partial: r });
+    return;
+  }
+  res.json(r);
 }
