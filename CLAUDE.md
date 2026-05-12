@@ -81,18 +81,28 @@ Bez: reranker, multi-model embedding ensemble, OAuth, frontend, eval rig. To dol
 
 ## Lokalni razvoj
 
+Compose file je na repo root-u (`docker-compose.yml`). Init skripte za DB-ove
+ostaju u `infra/{postgres,clickhouse}/init.sql`.
+
 ```bash
-# Podiganje stack-a (jednom .env je popunjen)
-docker compose -f infra/docker-compose.yml up -d postgres clickhouse embedder
-# Provjera
-docker compose -f infra/docker-compose.yml ps
+# Sve servise (pg + ch + embedder + mcp)
+docker compose up -d
 
-# Inicijalni ETL (kad bude napisan)
-# node services/mcp/scripts/etl_from_jsonl.ts \
-#   --input ../fetch.domovina.tv/storage/output \
-#   --batch-size 1000
+# Samo DB-ovi za development (lakši build/restart, embedder izvan kontejnera)
+docker compose up -d postgres clickhouse
 
-# Pokretanje MCP servera lokalno (development)
+# MPS host embedder workflow (Apple Silicon dev)
+# Terminal 1: embedder na hostu (vidi memory/project-mps-embedder-host)
+cd services/embedder && EMBEDDER_DEVICE=mps EMBEDDER_MAX_TEXT_LEN=32768 \
+  .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Terminal 2: MCP container koji zove host embedder
+# (.env mora imati EMBEDDER_URL=http://host.docker.internal:8000)
+docker compose up -d mcp
+
+# ETL ingest (one-shot, profile=etl)
+docker compose --profile etl run --rm etl ingest --input /data --batch-size 4
+
+# Pokretanje MCP servera direktno (stdio dev, bez containera)
 cd services/mcp && npm run dev
 # Konektaj Claude Desktop preko stdio (claude_desktop_config.json)
 ```

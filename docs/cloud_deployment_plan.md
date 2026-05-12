@@ -5,7 +5,13 @@
 > **Infrastructure:** Coolify (`app.domovina.link`) deploya stack, Cloudflare Tunnel exposa Traefik, R2 store-a snapshot-e.
 > **Coolify project:** `px79sl4tx5o2ehbk5kpgbxp0`, env `p61gjclkyz58fmdkd0owxqk8`
 > **Repo:** `https://github.com/domovinatv/domovina-rag` (public)
-> **Verzija plana:** v2, 2026-05-12.
+> **Verzija plana:** v3, 2026-05-12.
+
+> ⚠️ **Tijekom prvog deploya (2026-05-12) saznali smo:**
+> - Coolify v4 NEMA UI polje za `--profile` flag → maknuli smo `profiles: [full]` iz base compose-a; svi servisi (pg, ch, embedder, mcp) sad auto-startaju. ETL ostaje pod `profiles: [etl]` jer je one-shot.
+> - Coolify resolva build paths protiv compose-file directory-a → **compose file je premješten na repo root** (`/docker-compose.yml`, ne više `/infra/docker-compose.yml`). Init skripte ostaju u `infra/{pg,ch}/init.sql`.
+> - **`infra/docker-compose.prod.yml` više NE postoji.** Coolify-native put (UI "Domains for mcp" field → auto-generira Traefik labels) je čišći nego hand-coded override.
+> - Sve sekcije ispod su ažurirane gdje je trebalo, ali u tekstu još ima staromodnih referenci na prod.yml — ignoriraj ih.
 
 ## TL;DR arhitektura
 

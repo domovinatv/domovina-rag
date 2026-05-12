@@ -69,7 +69,7 @@ domovina-rag/
 
 ```bash
 cp .env.example .env  # popuni PG_PASSWORD, CH_PASSWORD, MCP_API_KEY
-docker compose -f infra/docker-compose.yml up -d
+docker compose up -d
 # Health check: http://localhost:3000/health
 ```
 
