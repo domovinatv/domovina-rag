@@ -62,9 +62,10 @@ services:
     # volume) ostali pull-ovi su no-op pa internet nije strogo nužan.
     networks: [internal, web]
     restart: unless-stopped
-    # `full` profile zato što je build velik (~3GB s torch+bge-m3 weights);
-    # za minimal dev (samo DB-ovi) `docker compose up postgres clickhouse` ne dira ovo.
-    profiles: ["full"]
+    # NB: bez profile-a — auto-startuje s `docker compose up`. Za minimal dev
+    # (samo DB-ovi) koristi `docker compose up postgres clickhouse` (eksplicitno
+    # imena servisa) umjesto profile-a, jer build je velik (~3GB s torch+bge-m3).
+    # Coolify ne podržava `--profile` flag iz UI-a, pa profile-i NE valjaju u cloud-u.
 
   etl:
     build: ../services/etl
@@ -104,10 +105,10 @@ services:
       MCP_AUTH_MODE: ${MCP_AUTH_MODE}
       MCP_API_KEY: ${MCP_API_KEY}
     ports:
-      - "${MCP_PORT}:3000"
+      - "${MCP_PORT:-3000}:3000"
     networks: [internal, web]
     restart: unless-stopped
-    profiles: ["full"]
+    # Bez profile-a — Coolify auto-startuje. Vidi komentar na `embedder` servisu.
 
 volumes:
   pg_data:
