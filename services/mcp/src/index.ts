@@ -1,19 +1,30 @@
 // MCP server entry point. Bira transport (stdio | http) iz env varijable.
 //
 //   stdio  → za Claude Desktop dev (proces se spawn-a kroz claude_desktop_config.json)
-//   http   → za production deploy (Coolify), Express + Streamable HTTP transport + Bearer auth
+//   http   → za production deploy (Coolify), Express + Streamable HTTP + OAuth 2.1
 //
-// Streamable HTTP je trenutni MCP transport (spec 2025-03-26+) — single endpoint /mcp
-// koji handluje POST (request → JSON ili SSE stream), GET (server-initiated notifications
-// preko SSE), i DELETE (session termination). `Mcp-Session-Id` header tracka session.
-// SSE legacy transport je uklonjen — `mcp-remote` bridge više nije potreban.
+// Streamable HTTP je trenutni MCP transport (spec 2025-03-26+) — single endpoint
+// /mcp koji handluje POST (request → JSON ili SSE stream), GET (server-initiated
+// notifications preko SSE), i DELETE (session termination). `Mcp-Session-Id`
+// header tracka session.
+//
+// Auth podržava dva mode-a paralelno:
+// - **OAuth 2.1 + DCR** (Claude.ai Custom Connectors): /authorize, /token,
+//   /register, metadata na .well-known/*. Implementirano preko SDK mcpAuthRouter.
+//   Klijenti se dynamic-registriraju (RFC 7591) i prolaze PKCE Authorization Code
+//   flow s auto-approve-om.
+// - **Static API key** (CI smoke test, e2e, legacy klijenti): `Authorization: Bearer
+//   $MCP_API_KEY`. Bypass-a OAuth dance, direktno se prepoznaje u verifyAccessToken.
 
 import { randomUUID } from "node:crypto";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import express, { type Request, type Response, type NextFunction } from "express";
+import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
+import express, { type Request, type Response } from "express";
 
+import { LocalOAuthProvider } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { createCh } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
@@ -35,7 +46,7 @@ async function main() {
     return;
   }
 
-  // ─── HTTP + Streamable Transport ─────────────────────────────
+  // ─── HTTP + Streamable Transport + OAuth ─────────────────────
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
@@ -44,21 +55,37 @@ async function main() {
     res.json({ status: "ok", service: config.serviceName, version: config.serviceVersion });
   });
 
-  // API key middleware za sve ostale rute.
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (config.authMode === "none") return next();
-    const auth = req.header("authorization") || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!token || token !== config.apiKey) {
-      res.status(401).json({ error: "unauthorized" });
-      return;
-    }
-    next();
+  // OAuth provider — in-memory clients/tokens. Static API key (legacy) je
+  // prepoznat side-by-side s issued OAuth tokenima.
+  const oauthProvider = new LocalOAuthProvider({
+    staticApiKey: config.authMode === "apikey" ? config.apiKey : null,
+    staticScopes: ["mcp"],
   });
 
-  // Streamable HTTP transport — stateful mode s in-memory session tracking-om.
-  // BITNO: svaki sessija dobiva svoj `Server` instance jer SDK Server može biti
-  // spojen na samo jedan transport. Pohranjujemo `{ server, transport }` par.
+  // OAuth metadata + endpoints (RFC 8414, RFC 7591, RFC 6749/9700, RFC 7636).
+  // SDK auto-mountira: /.well-known/oauth-authorization-server, /.well-known/
+  // oauth-protected-resource, /authorize, /token, /register, /revoke.
+  //
+  // issuerUrl mora biti public URL servisa (s https i bez query/fragment).
+  // U devu se setupira preko PUBLIC_BASE_URL env-a (npr. ngrok), u produkciji
+  // preko Coolify-ja postavljeno na cloud hostname.
+  const issuerUrl = new URL(config.publicBaseUrl);
+  app.use(
+    mcpAuthRouter({
+      provider: oauthProvider,
+      issuerUrl,
+      scopesSupported: ["mcp"],
+      resourceName: config.serviceName,
+    }),
+  );
+
+  // SDK Bearer auth middleware — provjerava `Authorization: Bearer <token>`,
+  // delegira na `oauthProvider.verifyAccessToken(token)`. Static API key
+  // prolazi isti path jer ga provider prepoznaje.
+  const bearer = requireBearerAuth({ verifier: oauthProvider });
+
+  // Streamable HTTP transport — stateful mode. Svaki sessija dobiva svoj
+  // `Server` instance jer SDK Server može biti spojen na samo jedan transport.
   type Session = {
     server: ReturnType<typeof createServer>;
     transport: StreamableHTTPServerTransport;
@@ -66,10 +93,7 @@ async function main() {
   const sessions = new Map<string, Session>();
 
   // Single endpoint hand-ling sve metode (POST, GET, DELETE).
-  // POST = JSON-RPC request from client (initialize, tools/list, tools/call)
-  // GET = open SSE stream za server-sent notifications
-  // DELETE = explicit session termination
-  app.all("/mcp", async (req, res) => {
+  app.all("/mcp", bearer, async (req: Request, res: Response) => {
     try {
       const incomingSessionId = req.header("mcp-session-id");
       let session: Session | undefined;
@@ -85,9 +109,7 @@ async function main() {
           return;
         }
       } else if (req.method === "POST" && isInitializeRequest(req.body)) {
-        // Nova sesija — fresh Server + fresh transport, connect, pa zatim
-        // handleRequest. sessionId se materijalizira tijekom handleRequest-a;
-        // registriramo session u map poslije.
+        // Nova sesija — fresh Server + fresh transport.
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
         });
@@ -112,8 +134,6 @@ async function main() {
 
       await session.transport.handleRequest(req, res, req.body);
 
-      // Registriraj novokreirani session tek poslije prvog handleRequest-a
-      // (kad je sessionId dodjeljen).
       if (session.transport.sessionId && !sessions.has(session.transport.sessionId)) {
         sessions.set(session.transport.sessionId, session);
       }
@@ -131,7 +151,7 @@ async function main() {
 
   const httpServer = app.listen(config.httpPort, () => {
     console.error(
-      `[mcp] ${config.serviceName} v${config.serviceVersion} → http :${config.httpPort} (auth=${config.authMode}, transport=streamable-http)`,
+      `[mcp] ${config.serviceName} v${config.serviceVersion} → http :${config.httpPort} (issuer=${issuerUrl}, auth=oauth+apikey, transport=streamable-http)`,
     );
   });
 
@@ -146,9 +166,6 @@ async function main() {
 }
 
 
-// Detektira MCP `initialize` JSON-RPC request. Initialize je single ili batch
-// (older clients), pa provjeravamo oba shape-a. Method ime je u spec-u
-// fiksirano na "initialize".
 function isInitializeRequest(body: unknown): boolean {
   if (!body) return false;
   if (Array.isArray(body)) return body.some(isInitializeRequest);

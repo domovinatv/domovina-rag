@@ -109,6 +109,10 @@ services:
       EMBEDDER_URL: ${EMBEDDER_URL:-http://embedder:8000}
       MCP_AUTH_MODE: ${MCP_AUTH_MODE}
       MCP_API_KEY: ${MCP_API_KEY}
+      # Public URL — koristi se kao OAuth issuer u metadata-i. Za lokalni dev
+      # može biti ngrok URL (npr. https://uniformly-credible-opossum.ngrok-free.app),
+      # za produkciju cloud hostname (https://mcp.domovina.ai).
+      MCP_PUBLIC_BASE_URL: ${MCP_PUBLIC_BASE_URL:-http://localhost:3000}
     ports:
       - "${MCP_PORT:-3000}:3000"
     networks: [internal, web]

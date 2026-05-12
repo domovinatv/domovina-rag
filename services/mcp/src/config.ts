@@ -14,6 +14,7 @@ function optional(name: string, fallback: string): string {
 export interface Config {
   transport: "stdio" | "http";
   httpPort: number;
+  publicBaseUrl: string;
   authMode: "apikey" | "none";
   apiKey: string | null;
   postgresUrl: string;
@@ -35,9 +36,13 @@ export function loadConfig(): Config {
     throw new Error("MCP_API_KEY required when transport=http and auth=apikey");
   }
 
+  const httpPort = parseInt(optional("MCP_PORT", "3000"), 10);
   return {
     transport,
-    httpPort: parseInt(optional("MCP_PORT", "3000"), 10),
+    httpPort,
+    // Public URL servisa — issuer u OAuth metadata. U devu postavi na ngrok
+    // ili na http://localhost:3000. U prod-u (Coolify) postavi na https hostname.
+    publicBaseUrl: optional("MCP_PUBLIC_BASE_URL", `http://localhost:${httpPort}`),
     authMode,
     apiKey,
     postgresUrl: required("POSTGRES_URL"),
