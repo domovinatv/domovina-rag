@@ -1,20 +1,21 @@
-// Smoke test za search_podcasts. Spaja se preko SSE transporta na lokalni MCP
-// server, lista tool-ove i zove search_podcasts.
+// Smoke test za search_podcasts. Spaja se preko Streamable HTTP transporta na lokalni
+// MCP server, lista tool-ove i zove search_podcasts s tri scenarija (semantic,
+// hybrid, no-match).
 //
 // Run: MCP_API_KEY=$(grep MCP_API_KEY ../../.env | cut -d= -f2) node scripts/smoke-test.mjs
+// Default endpoint: http://localhost:3000/mcp
+// Override: MCP_URL=https://mcp.domovina.ai/mcp node scripts/smoke-test.mjs
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const key = process.env.MCP_API_KEY;
 if (!key) throw new Error("MCP_API_KEY env required");
 
-const url = new URL("http://localhost:3000/sse");
-const transport = new SSEClientTransport(url, {
-  requestInit: { headers: { Authorization: `Bearer ${key}` } },
-  eventSourceInit: {
-    fetch: (u, init) =>
-      fetch(u, { ...init, headers: { ...init?.headers, Authorization: `Bearer ${key}` } }),
+const url = new URL(process.env.MCP_URL || "http://localhost:3000/mcp");
+const transport = new StreamableHTTPClientTransport(url, {
+  requestInit: {
+    headers: { Authorization: `Bearer ${key}` },
   },
 });
 

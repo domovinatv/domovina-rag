@@ -71,15 +71,17 @@ Selektiran preko `MCP_TRANSPORT` env varijable:
 
 | Vrijednost | Use case | Auth |
 |---|---|---|
-| `stdio` (default) | Claude Desktop lokalni dev | nema (subprocess) |
+| `stdio` (default) | Claude Desktop lokalni dev (subprocess) | nema |
 | `http` | Production Coolify deploy | Bearer API key |
 
-HTTP mode izlaže:
+HTTP mode (Streamable HTTP, MCP spec 2025-03-26+):
 - `GET /health` — health check (no auth) za Docker healthcheck
-- `GET /sse` — SSE stream, klijent otvara i drži open
-- `POST /messages?sessionId=...` — JSON-RPC frames natrag
+- `POST /mcp` — JSON-RPC requests (initialize, tools/list, tools/call). Vraća single JSON ili SSE stream (Content-Type: text/event-stream).
+- `GET /mcp` — open SSE stream za server-sent notifications (long-lived)
+- `DELETE /mcp` — eksplicitna terminacija sesije
+- Server vraća `Mcp-Session-Id` header u initialize response-u; svi sljedeći request-ovi moraju ga sadržavati
 
-SSE je legacy MCP transport. Streamable HTTP upgrade je Faza 2.
+Single Server instance per sessija (SDK limitation — Server može biti spojen na samo jedan transport). `Streamable HTTP` je standardni transport koji **Claude.ai Custom Connectors** native podržava — bez `mcp-remote` bridge-a.
 
 ## Auth (HTTP mode)
 
@@ -168,11 +170,26 @@ Pretpostavlja da su PG/CH/embedder portovi forward-ani van docker internal mrež
 
 ## Claude Desktop konfig (HTTP, production cloud)
 
+Streamable HTTP transport native-podržan u modernim MCP klijentima (Claude Desktop, Claude.ai Custom Connectors, MCP Inspector, etc).
+
+### Claude.ai Custom Connectors (najjednostavnije)
+
+Profile → Custom Integrations → Add custom MCP server:
+- **URL**: `https://mcp.domovina.ai/mcp`
+- **Auth**: Bearer + API key
+
+Bez ikakvog dodatnog setup-a.
+
+### Claude Desktop config file (alternativa)
+
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
     "domovina-podcast-prod": {
-      "url": "https://mcp.domovina.ai/sse",
+      "url": "https://mcp.domovina.ai/mcp",
+      "transport": "http",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }

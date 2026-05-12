@@ -1,18 +1,19 @@
 // E2E runner za search_podcasts test set.
 //
 // Učitava `cases.mjs`, filtrira po `TEST_REQUIRES` (default `current_smoke`)
-// i `TEST_CATEGORY`, zove MCP server preko SSE transporta i verificira
+// i `TEST_CATEGORY`, zove MCP server preko Streamable HTTP transporta i verificira
 // `must_have` asercije.
 //
 // Run: `node test/e2e/run.mjs`  (iz services/mcp/)
 //      `MCP_API_KEY=$(grep MCP_API_KEY ../../.env | cut -d= -f2) node test/e2e/run.mjs`
 //      `TEST_REQUIRES=multi_channel node test/e2e/run.mjs` — skip current_smoke cases
 //      `TEST_CATEGORY=person node test/e2e/run.mjs`
+//      `MCP_URL=https://mcp.domovina.ai node test/e2e/run.mjs` — gađaj cloud
 //
 // Exit code: 0 ako svi prošli, 1 ako ima fail-ova.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import cases from "./cases.mjs";
 
 
@@ -142,12 +143,8 @@ console.log(`Test set: ${selected.length} cases selected (${skipped} skipped by 
 console.log(`Filters: requires=${requireFilter}${categoryFilter ? ` category=${categoryFilter}` : ""}`);
 console.log("");
 
-const transport = new SSEClientTransport(new URL(`${mcpUrl}/sse`), {
+const transport = new StreamableHTTPClientTransport(new URL(`${mcpUrl}/mcp`), {
   requestInit: { headers: { Authorization: `Bearer ${apiKey}` } },
-  eventSourceInit: {
-    fetch: (u, init) =>
-      fetch(u, { ...init, headers: { ...init?.headers, Authorization: `Bearer ${apiKey}` } }),
-  },
 });
 
 const client = new Client({ name: "e2e-runner", version: "0.0.1" }, { capabilities: {} });

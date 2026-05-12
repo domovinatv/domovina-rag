@@ -156,8 +156,11 @@ flowchart LR
 
 **Endpoint**: `https://mcp.domovina.ai`
 - `GET /health` — public health check
-- `GET /sse` — SSE MCP transport (zahtijeva `Authorization: Bearer <key>`)
-- `POST /messages?sessionId=...` — JSON-RPC frames (zahtijeva auth)
+- `POST /mcp` — Streamable HTTP MCP transport (zahtijeva `Authorization: Bearer <key>`). Initialize handshake vraća `Mcp-Session-Id` header za sljedeće request-ove.
+- `GET /mcp` — opcionalni SSE stream za server-sent notifications
+- `DELETE /mcp` — terminacija sesije
+
+Streamable HTTP transport je native-podržan u Claude.ai Custom Connectors i Claude Desktop (no bridge needed).
 
 Deploy preko [Coolify](https://app.domovina.link/) iz ovog repo-a; sync iz lokalne baze planiran preko R2 BACKUP/RESTORE (vidi [`docs/cloud_deployment_plan.md`](./docs/cloud_deployment_plan.md)).
 
