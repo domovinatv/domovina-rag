@@ -54,9 +54,16 @@ def load_file(
     """
     meta = episode_meta_from_first_chunk(jsonl)
 
+    # Channel UPSERT mora biti commit-an ZASEBNO od episode+chunks transakcije.
+    # Inače, ako kasniji embed/CH insert fail-a, `pg.rollback()` u caller-u poništi
+    # i channel SERIAL id generation — ali in-memory `channel_cache` zadržava
+    # phantom id koji više ne postoji u PG-u. Sljedeća epizoda istog kanala
+    # pokuša episode insert s phantom channel_id → FK violation cascade.
+    # Fix: commit channel odmah; channel je global state, ne per-episode.
     channel_id = channel_cache.get(meta.channel_slug)
     if channel_id is None:
         channel_id = pg.upsert_channel(meta.channel_slug)
+        pg.commit()  # ← komit ČIM channel id postoji, nezavisno od episode rezultata
         channel_cache[meta.channel_slug] = channel_id
 
     episode_id = pg.upsert_episode(
