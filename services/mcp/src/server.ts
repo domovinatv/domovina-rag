@@ -1,0 +1,82 @@
+// MCP Server factory — registrira tool-ove, mapira CallTool requeste, vraća Server instancu.
+
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { ClickHouseClient } from "@clickhouse/client";
+
+import type { Config } from "./config.js";
+import type { EmbedderClient } from "./embedder.js";
+import {
+  searchPodcasts,
+  SearchPodcastsInput,
+  searchPodcastsJsonSchema,
+} from "./tools/search-podcasts.js";
+
+
+export interface ServerDeps {
+  config: Config;
+  ch: ClickHouseClient;
+  embedder: EmbedderClient;
+}
+
+
+export function createServer(deps: ServerDeps): Server {
+  const server = new Server(
+    { name: deps.config.serviceName, version: deps.config.serviceVersion },
+    { capabilities: { tools: {} } },
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [
+      {
+        name: "search_podcasts",
+        description:
+          "Semantic search hrvatskog katoličkog/političkog podcast korpusa. " +
+          "Vraća chunkove transkripta s deep linkovima na YouTube vrijeme. " +
+          "Koristi za pitanja tipa 'što je X rekao o Y' ili 'gdje se spominje Z'.",
+        inputSchema: searchPodcastsJsonSchema,
+      },
+    ],
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    if (req.params.name === "search_podcasts") {
+      const parsed = SearchPodcastsInput.safeParse(req.params.arguments);
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const results = await searchPodcasts(parsed.data, {
+          ch: deps.ch,
+          embedder: deps.embedder,
+        });
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(results, null, 2) },
+          ],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `search_podcasts failed: ${msg}` }],
+        };
+      }
+    }
+
+    return {
+      isError: true,
+      content: [{ type: "text", text: `Unknown tool: ${req.params.name}` }],
+    };
+  });
+
+  return server;
+}

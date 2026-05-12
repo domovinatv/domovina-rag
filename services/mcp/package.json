@@ -1,0 +1,32 @@
+{
+  "name": "domovina-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:http": "MCP_TRANSPORT=http node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "dev:http": "MCP_TRANSPORT=http tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clickhouse/client": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.7.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

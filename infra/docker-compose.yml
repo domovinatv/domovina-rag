@@ -77,14 +77,14 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
+      embedder: { condition: service_healthy }
     environment:
+      MCP_TRANSPORT: http
       POSTGRES_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CLICKHOUSE_URL: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@clickhouse:8123/${CLICKHOUSE_DB}
-      EMBEDDER_URL: http://embedder:${EMBEDDER_PORT}
+      EMBEDDER_URL: http://embedder:8000
       MCP_AUTH_MODE: ${MCP_AUTH_MODE}
       MCP_API_KEY: ${MCP_API_KEY}
-      LLM_PROVIDER: ${LLM_PROVIDER}
-      VERTEX_PROJECT: ${VERTEX_PROJECT}
     ports:
       - "${MCP_PORT}:3000"
     networks: [internal, web]
