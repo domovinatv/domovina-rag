@@ -19,7 +19,14 @@ import express, { type Request, type Response, type NextFunction } from "express
 
 import { PgOAuthProvider } from "./auth.js";
 import { makeRequireAdmin } from "./admin-auth.js";
-import { deleteClient, getStats, listClients } from "./admin/handlers.js";
+import {
+  deleteClient,
+  getAuditLog,
+  getStats,
+  listClients,
+  listTokens,
+  revokeToken,
+} from "./admin/handlers.js";
 import { loadConfig } from "./config.js";
 import { createCh, createPg } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
@@ -107,6 +114,24 @@ async function main() {
   app.delete("/admin/api/clients/:client_id", requireAdmin, (req, res) => {
     void deleteClient(adminDeps, req, res).catch((err) => {
       console.error("[admin] deleteClient failed:", err);
+      if (!res.headersSent) res.status(500).json({ error: "internal" });
+    });
+  });
+  app.get("/admin/api/tokens", requireAdmin, (req, res) => {
+    void listTokens(adminDeps, req, res).catch((err) => {
+      console.error("[admin] listTokens failed:", err);
+      if (!res.headersSent) res.status(500).json({ error: "internal" });
+    });
+  });
+  app.delete("/admin/api/tokens/:prefix", requireAdmin, (req, res) => {
+    void revokeToken(adminDeps, req, res).catch((err) => {
+      console.error("[admin] revokeToken failed:", err);
+      if (!res.headersSent) res.status(500).json({ error: "internal" });
+    });
+  });
+  app.get("/admin/api/audit", requireAdmin, (req, res) => {
+    void getAuditLog(adminDeps, req, res).catch((err) => {
+      console.error("[admin] getAuditLog failed:", err);
       if (!res.headersSent) res.status(500).json({ error: "internal" });
     });
   });
