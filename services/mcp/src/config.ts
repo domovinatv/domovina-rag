@@ -44,6 +44,6 @@ export function loadConfig(): Config {
     clickhouseUrl: required("CLICKHOUSE_URL"),
     embedderUrl: optional("EMBEDDER_URL", "http://embedder:8000"),
     serviceName: "domovina-podcast",
-    serviceVersion: "0.1.0",
+    serviceVersion: "0.2.0",
   };
 }
