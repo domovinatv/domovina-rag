@@ -93,7 +93,9 @@ async function main() {
   const sessions = new Map<string, Session>();
 
   // Single endpoint hand-ling sve metode (POST, GET, DELETE).
-  app.all("/mcp", bearer, async (req: Request, res: Response) => {
+  // Root "/" je canonical — `mcp.domovina.ai` subdomena već encode-a "MCP" semantic.
+  // "/mcp" ostaje za backward-compat (klijenti koji su konfigurirali stari URL).
+  app.all(["/", "/mcp"], bearer, async (req: Request, res: Response) => {
     try {
       const incomingSessionId = req.header("mcp-session-id");
       let session: Session | undefined;

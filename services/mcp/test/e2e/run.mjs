@@ -143,7 +143,8 @@ console.log(`Test set: ${selected.length} cases selected (${skipped} skipped by 
 console.log(`Filters: requires=${requireFilter}${categoryFilter ? ` category=${categoryFilter}` : ""}`);
 console.log("");
 
-const transport = new StreamableHTTPClientTransport(new URL(`${mcpUrl}/mcp`), {
+// Root je canonical MCP endpoint. /mcp backward-compat path i dalje radi.
+const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
   requestInit: { headers: { Authorization: `Bearer ${apiKey}` } },
 });
 

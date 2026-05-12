@@ -3,8 +3,9 @@
 // hybrid, no-match).
 //
 // Run: MCP_API_KEY=$(grep MCP_API_KEY ../../.env | cut -d= -f2) node scripts/smoke-test.mjs
-// Default endpoint: http://localhost:3000/mcp
-// Override: MCP_URL=https://mcp.domovina.ai/mcp node scripts/smoke-test.mjs
+// Default endpoint: http://localhost:3000/ (root, canonical)
+// Override: MCP_URL=https://mcp.domovina.ai/ node scripts/smoke-test.mjs
+// /mcp i dalje radi za backward-compat klijente.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -12,7 +13,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 const key = process.env.MCP_API_KEY;
 if (!key) throw new Error("MCP_API_KEY env required");
 
-const url = new URL(process.env.MCP_URL || "http://localhost:3000/mcp");
+const url = new URL(process.env.MCP_URL || "http://localhost:3000/");
 const transport = new StreamableHTTPClientTransport(url, {
   requestInit: {
     headers: { Authorization: `Bearer ${key}` },
