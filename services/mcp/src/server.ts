@@ -36,7 +36,9 @@ export function createServer(deps: ServerDeps): Server {
         description:
           "Semantic search hrvatskog katoličkog/političkog podcast korpusa. " +
           "Vraća chunkove transkripta s deep linkovima na YouTube vrijeme. " +
-          "Koristi za pitanja tipa 'što je X rekao o Y' ili 'gdje se spominje Z'.",
+          "Koristi za pitanja tipa 'što je X rekao o Y' ili 'gdje se spominje Z'. " +
+          "Za upite o specifičnim osobama/terminima koristi `lexical_terms` " +
+          "argument za hybrid retrieval (semantic + token filter).",
         inputSchema: searchPodcastsJsonSchema,
       },
     ],

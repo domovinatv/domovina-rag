@@ -15,6 +15,16 @@ export const SearchPodcastsInput = z.object({
   query: z.string().min(2).max(500).describe("Tekstualni upit na hrvatskom"),
   channel: z.string().optional().describe("Filter na slug kanala (npr. 'podcast_cuspajz')"),
   limit: z.number().int().min(1).max(50).default(10).describe("Maks. broj rezultata"),
+  lexical_terms: z
+    .array(z.string().min(1).max(50))
+    .max(10)
+    .optional()
+    .describe(
+      "Hybrid retrieval: vrati samo chunkove koji sadrže SVE navedene tokene. " +
+        "Koristi za proper nouns (npr. ['Hasanbegović']) ili specifične termine " +
+        "gdje semantic embedding ima slabosti. AND semantika (svi tokeni moraju biti " +
+        "prisutni); za OR pozovi tool više puta.",
+    ),
 });
 
 export type SearchPodcastsArgs = z.infer<typeof SearchPodcastsInput>;
@@ -42,6 +52,14 @@ export const searchPodcastsJsonSchema = {
     query: { type: "string", minLength: 2, maxLength: 500, description: "Tekstualni upit na hrvatskom" },
     channel: { type: "string", description: "Filter na slug kanala (npr. 'podcast_cuspajz')" },
     limit: { type: "integer", minimum: 1, maximum: 50, default: 10, description: "Maks. broj rezultata" },
+    lexical_terms: {
+      type: "array",
+      items: { type: "string", minLength: 1, maxLength: 50 },
+      maxItems: 10,
+      description:
+        "Hybrid: forsiraj da chunk sadrži SVE ove tokene (CH Bloom filter). " +
+        "Korisno za proper nouns (npr. ['Hasanbegović']) ili specifične termine.",
+    },
   },
   required: ["query"],
 };
@@ -71,11 +89,22 @@ export async function searchPodcasts(
     query_vec: vector,
     limit: args.limit,
   };
-  let whereClause = "";
+  const whereParts: string[] = [];
   if (args.channel) {
-    whereClause = "WHERE channel = {channel:String}";
+    whereParts.push("channel = {channel:String}");
     params.channel = args.channel;
   }
+  if (args.lexical_terms && args.lexical_terms.length > 0) {
+    // hasToken koristi tokenbf_v1 INDEX idx_text_tokens (vidi infra/clickhouse/init.sql).
+    // Bloom filter može imati false positive (vraća chunk koji možda nema token),
+    // pa CH automatski dodaje exact check nakon indeksa — nema lažnih pozitivaca u rezultatu.
+    args.lexical_terms.forEach((term, i) => {
+      const key = `lex_${i}`;
+      whereParts.push(`hasToken(text, {${key}:String})`);
+      params[key] = term;
+    });
+  }
+  const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
 
   const sql = `
     SELECT
