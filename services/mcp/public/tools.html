@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<title>Podržani alati — Domovina Podcast MCP</title>
+<meta name="description" content="Popis MCP alata koje izlaže mcp.domovina.ai — semantičko pretraživanje hrvatskog podcast korpusa." />
+<link rel="canonical" href="https://mcp.domovina.ai/tools" />
+
+<meta property="og:type" content="article" />
+<meta property="og:locale" content="hr_HR" />
+<meta property="og:site_name" content="DOMOVINA.ai" />
+<meta property="og:title" content="Podržani alati — Domovina Podcast MCP" />
+<meta property="og:description" content="Popis MCP alata: search_podcasts za semantičko pretraživanje hrvatskog podcast korpusa." />
+<meta property="og:url" content="https://mcp.domovina.ai/tools" />
+<meta property="og:image" content="https://mcp.domovina.ai/icon-512.png" />
+
+<link rel="icon" type="image/svg+xml" href="/icon.svg" />
+<link rel="icon" type="image/x-icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#002F6C" />
+
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<div class="tricolor" aria-hidden="true">
+  <span class="red"></span><span class="white"></span><span class="navy"></span>
+</div>
+
+<header>
+  <div class="brand">
+    <a href="/">
+      <svg viewBox="0 0 512 512" width="36" height="36" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="hdrFlag" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#FF0000"/><stop offset="33.3%" stop-color="#FF0000"/>
+            <stop offset="33.3%" stop-color="#FFFFFF"/><stop offset="66.6%" stop-color="#FFFFFF"/>
+            <stop offset="66.6%" stop-color="#002F6C"/><stop offset="100%" stop-color="#002F6C"/>
+          </linearGradient>
+        </defs>
+        <rect width="512" height="512" rx="32" fill="white"/>
+        <path d="M72 64H248C354.071 64 440 149.929 440 256C440 362.071 354.071 448 248 448H72V64Z" fill="url(#hdrFlag)"/>
+        <path d="M168 160H248C301.019 160 344 202.981 344 256C344 309.019 301.019 352 248 352H168V160Z" fill="white"/>
+        <g stroke="#002F6C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="205" y1="205" x2="295" y2="225"/><line x1="295" y1="225" x2="285" y2="285"/>
+          <line x1="285" y1="285" x2="205" y2="307"/><line x1="205" y1="307" x2="205" y2="205"/>
+          <line x1="205" y1="205" x2="245" y2="256"/><line x1="295" y1="225" x2="245" y2="256"/>
+          <line x1="285" y1="285" x2="245" y2="256"/><line x1="205" y1="307" x2="245" y2="256"/>
+        </g>
+        <g fill="#002F6C">
+          <circle cx="205" cy="205" r="10"/><circle cx="295" cy="225" r="10"/>
+          <circle cx="205" cy="307" r="10"/><circle cx="285" cy="285" r="10"/>
+          <circle cx="245" cy="256" r="14"/>
+        </g>
+      </svg>
+      <span class="word">DOMOVINA<span class="accent">.ai</span></span>
+    </a>
+  </div>
+  <nav class="docnav" aria-label="Dokumentacija">
+    <a href="/">Pregled</a>
+    <a href="/tools" class="active">Alati</a>
+    <a href="/pricing">Ograničenja</a>
+  </nav>
+</header>
+
+<main>
+
+  <div class="hero">
+    <h1>Podržani alati</h1>
+    <p class="lede">
+      Trenutno Domovina MCP poslužitelj nudi sljedeći alat za pretraživanje
+      korpusa. Dodatni alati u izradi navedeni su pod „Planirano".
+    </p>
+  </div>
+
+  <section>
+    <h2>Aktivni alati</h2>
+    <table class="doc-table">
+      <thead>
+        <tr><th>Alat</th><th>Opis</th><th>Parametri</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>search_podcasts</code></td>
+          <td>
+            Semantičko pretraživanje korpusa hrvatskih katoličkih i političkih
+            podcasta. Vraća do 50 chunkova transkripta s ocjenom relevantnosti,
+            imenom govornika, vremenom u epizodi i dubokim linkom na YouTube na
+            točnu sekundu. Podržava hibridno pretraživanje (semantika + leksički
+            filter) za vlastita imena gdje sami vektori imaju slabosti.
+          </td>
+          <td>
+            <div class="param-list">
+              <strong>query</strong> (string, obavezan): prirodno jezični upit, 2–500 znakova<br/>
+              <strong>limit</strong> (broj, neobavezan): 1–50, zadano 10<br/>
+              <strong>channel</strong> (string, neobavezan): slug kanala (npr. <code>podcast_cuspajz</code>)<br/>
+              <strong>lexical_terms</strong> (popis stringova, neobavezan): hibridni filter — chunk mora sadržavati SVE navedene tokene; do 10 tokena
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Planirano (TBD)</h2>
+    <p>
+      Sljedeći alati su u planu ali nisu još implementirani na produkciji.
+      Prati napredak na <a href="https://github.com/domovinatv/domovina-rag/issues">GitHub Issues</a>.
+    </p>
+    <table class="doc-table">
+      <thead>
+        <tr><th>Alat</th><th>Opis</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>get_episode</code></td>
+          <td>Dohvati metapodatke i sažetak pojedine epizode prema <code>youtube_id</code>-u. Vraća naslov, datum objave, govornike, popis poglavlja i link na cijeli transkript.</td>
+          <td>planirano (Faza 2)</td>
+        </tr>
+        <tr>
+          <td><code>get_speaker</code></td>
+          <td>Dohvati profil govornika prema imenu — popis pojavljivanja po epizodama, glavne teme, link na entity resolution. Zahtijeva završetak ensemble speaker pipeline-a (TitaNet + pyannote-wespeaker34).</td>
+          <td>planirano (Faza 3)</td>
+        </tr>
+        <tr>
+          <td><code>list_channels</code></td>
+          <td>Popis aktivnih YouTube kanala u korpusu s metapodacima (ime, follower count, broj epizoda, zadnja sinkronizacija).</td>
+          <td>planirano (Faza 2)</td>
+        </tr>
+        <tr>
+          <td><code>chat</code> (Q&amp;A)</td>
+          <td>Cjelokupni Q&amp;A cjevovod: tvoje pitanje → retrieval → reranker → Gemini 2.5 Flash generacija s citatima iz transkripta. Resursno zahtjevnija operacija — vlastiti rate-limit bazen (vidi <a href="/pricing">Ograničenja</a>).</td>
+          <td>planirano (Faza 2)</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Stil odgovora</h2>
+    <p>
+      Svi alati vraćaju strukturirani JSON unutar MCP <code>content</code> bloka tipa
+      <code>text</code> (JSON-stringified). Vremenski timestamp-i su u sekundama od
+      početka videa; datumi u <code>YYYY-MM-DD</code> formatu (ISO 8601). Hrvatska
+      slova zadržana su u UTF-8 bez transliteracije.
+    </p>
+  </section>
+
+  <div class="page-nav">
+    <a href="/" class="prev">Pregled</a>
+    <span class="spacer"></span>
+    <a href="/pricing" class="next">Ograničenja zahtjeva</a>
+  </div>
+
+</main>
+
+<footer>
+  Dio platforme <a href="https://domovina.ai">DOMOVINA.ai</a>
+  &middot; pokrenuto na Coolifyju &middot; TLS preko Cloudflarea
+  &middot; MCP specifikacija 2025-03-26
+</footer>
+
+<div class="tricolor" aria-hidden="true">
+  <span class="red"></span><span class="white"></span><span class="navy"></span>
+</div>
+
+</body>
+</html>

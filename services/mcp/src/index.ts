@@ -71,9 +71,11 @@ async function main() {
 
   const app = express();
 
-  // Static public assets (favicon, icons, manifest) — public, bez auth-a.
+  // Static public assets (favicon, ikone, manifest, dokumentacijske HTML stranice
+  // /tools i /pricing) — public, bez auth-a. `extensions: ["html"]` znači da se
+  // /tools resolva u public/tools.html bez sufiksa u URL-u (Magisterium-style).
   const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
-  app.use(express.static(publicDir, { index: false, maxAge: "1h" }));
+  app.use(express.static(publicDir, { index: false, maxAge: "1h", extensions: ["html"] }));
 
   app.use(express.json({ limit: "1mb" }));
 

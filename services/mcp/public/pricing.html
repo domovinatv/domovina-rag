@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<title>Ograničenja zahtjeva — Domovina Podcast MCP</title>
+<meta name="description" content="Ograničenja zahtjeva po klijentu za mcp.domovina.ai — sliding window 60 zahtjeva u minuti i 1000 u satu. MVP je javno besplatan." />
+<link rel="canonical" href="https://mcp.domovina.ai/pricing" />
+
+<meta property="og:type" content="article" />
+<meta property="og:locale" content="hr_HR" />
+<meta property="og:site_name" content="DOMOVINA.ai" />
+<meta property="og:title" content="Ograničenja zahtjeva — Domovina Podcast MCP" />
+<meta property="og:description" content="MVP je javno besplatan. Po klijentu: 60 zahtjeva u minuti i 1000 u satu, sliding window." />
+<meta property="og:url" content="https://mcp.domovina.ai/pricing" />
+<meta property="og:image" content="https://mcp.domovina.ai/icon-512.png" />
+
+<link rel="icon" type="image/svg+xml" href="/icon.svg" />
+<link rel="icon" type="image/x-icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#002F6C" />
+
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<div class="tricolor" aria-hidden="true">
+  <span class="red"></span><span class="white"></span><span class="navy"></span>
+</div>
+
+<header>
+  <div class="brand">
+    <a href="/">
+      <svg viewBox="0 0 512 512" width="36" height="36" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="hdrFlag" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#FF0000"/><stop offset="33.3%" stop-color="#FF0000"/>
+            <stop offset="33.3%" stop-color="#FFFFFF"/><stop offset="66.6%" stop-color="#FFFFFF"/>
+            <stop offset="66.6%" stop-color="#002F6C"/><stop offset="100%" stop-color="#002F6C"/>
+          </linearGradient>
+        </defs>
+        <rect width="512" height="512" rx="32" fill="white"/>
+        <path d="M72 64H248C354.071 64 440 149.929 440 256C440 362.071 354.071 448 248 448H72V64Z" fill="url(#hdrFlag)"/>
+        <path d="M168 160H248C301.019 160 344 202.981 344 256C344 309.019 301.019 352 248 352H168V160Z" fill="white"/>
+        <g stroke="#002F6C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="205" y1="205" x2="295" y2="225"/><line x1="295" y1="225" x2="285" y2="285"/>
+          <line x1="285" y1="285" x2="205" y2="307"/><line x1="205" y1="307" x2="205" y2="205"/>
+          <line x1="205" y1="205" x2="245" y2="256"/><line x1="295" y1="225" x2="245" y2="256"/>
+          <line x1="285" y1="285" x2="245" y2="256"/><line x1="205" y1="307" x2="245" y2="256"/>
+        </g>
+        <g fill="#002F6C">
+          <circle cx="205" cy="205" r="10"/><circle cx="295" cy="225" r="10"/>
+          <circle cx="205" cy="307" r="10"/><circle cx="285" cy="285" r="10"/>
+          <circle cx="245" cy="256" r="14"/>
+        </g>
+      </svg>
+      <span class="word">DOMOVINA<span class="accent">.ai</span></span>
+    </a>
+  </div>
+  <nav class="docnav" aria-label="Dokumentacija">
+    <a href="/">Pregled</a>
+    <a href="/tools">Alati</a>
+    <a href="/pricing" class="active">Ograničenja</a>
+  </nav>
+</header>
+
+<main>
+
+  <div class="hero">
+    <h1>Ograničenja zahtjeva</h1>
+    <p class="lede">
+      Domovina MCP poslužitelj je javno dostupan kao MVP — bez registracije računa,
+      bez plaćanja. Ograničenja korištenja primjenjuju se po OAuth klijentu da bi
+      servis ostao stabilan za sve korisnike.
+    </p>
+  </div>
+
+  <blockquote>
+    <p>
+      <strong>MVP — besplatno za sve.</strong> Trenutno ne postoje plaćeni planovi
+      i nije potrebna registracija računa. Limiti opisani ispod postavljeni su
+      konzervativno; ako naletite na njih, javite se i prilagodit ćemo ih.
+    </p>
+  </blockquote>
+
+  <section>
+    <h2>Aktivna ograničenja</h2>
+    <p>
+      Sliding window po OAuth <code>client_id</code>-u (Claude.ai i Claude Desktop
+      automatski dobivaju vlastiti <code>client_id</code> kroz DCR registraciju).
+      Counters resetiraju kontinuirano dok zahtjevi izlaze iz prozora.
+    </p>
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th>Razina</th>
+          <th>Zahtjeva / minuta</th>
+          <th>Zahtjeva / sat</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>MVP (svi klijenti)</td>
+          <td>60</td>
+          <td>1000</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Kad probijete prozor, poslužitelj vraća HTTP <code>429 Too Many Requests</code>
+      s headerima <code>Retry-After</code>, <code>X-RateLimit-Limit-Minute</code> i
+      <code>X-RateLimit-Remaining-Minute</code> (te ekvivalentima za satni prozor).
+      Većina MCP klijenata automatski poštuje <code>Retry-After</code>.
+    </p>
+  </section>
+
+  <section>
+    <h2>Što se računa</h2>
+    <p>
+      Jedan zahtjev jednak je jednom HTTP requestu prema <code>/mcp</code>
+      (inicijalizacija sesije, poziv alata, ili keep-alive). Sljedeće
+      operacije <em>ne</em> računaju se u kvotu:
+    </p>
+    <ul class="bullets">
+      <li><code>GET /health</code> — javna provjera dostupnosti</li>
+      <li><code>GET /.well-known/*</code> — OAuth otkrivanje metapodataka</li>
+      <li><code>POST /register</code>, <code>GET /authorize</code>, <code>POST /token</code> — OAuth tok (jednom po klijentu)</li>
+    </ul>
+    <p>
+      Status alata u sesiji (lista alata, capabilities handshake) također
+      ne troši kvotu — ona se primjenjuje samo na produktivne pozive alata.
+    </p>
+  </section>
+
+  <section>
+    <h2>Resursno zahtjevne operacije (planirano)</h2>
+    <p>
+      Kada se uvede <code>chat</code> alat — cjelokupni Q&amp;A cjevovod s
+      reranker-om i Gemini 2.5 Flash generacijom — taj će alat podlijegati
+      <strong>zasebnoj, strožoj kvoti</strong> jer troši mjerljivo više
+      compute-a i LLM tokena.
+    </p>
+    <blockquote>
+      <p><strong>Planirano (TBD)</strong> — točne vrijednosti odredit će se prije aktivacije <code>chat</code> alata.</p>
+    </blockquote>
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th>Razina</th>
+          <th>Q&amp;A zahtjeva / minuta</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>MVP</td>
+          <td>TBD</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Plaćeni planovi (planirano)</h2>
+    <p>
+      Trenutno ne postoje plaćeni planovi. Ako ekosistem dođe do točke kad
+      compute troškovi budu prelazili volonterski kapacitet, razmotrit će se
+      uvođenje plana za organizacijsku upotrebu.
+    </p>
+    <blockquote>
+      <p><strong>Planirano (TBD)</strong> — strukture cijena i tier-ovi (Pro / Organization / Enterprise) još nisu definirani. Do tada vrijedi MVP politika: <em>besplatno za sve</em>.</p>
+    </blockquote>
+  </section>
+
+  <section>
+    <h2>Kontakt</h2>
+    <p>
+      Pitanja o ograničenjima, prijave abuse-a ili zahtjevi za većom kvotom:
+      <a href="https://github.com/domovinatv/domovina-rag/issues">GitHub Issues</a>.
+    </p>
+  </section>
+
+  <div class="page-nav">
+    <a href="/tools" class="prev">Podržani alati</a>
+    <span class="spacer"></span>
+  </div>
+
+</main>
+
+<footer>
+  Dio platforme <a href="https://domovina.ai">DOMOVINA.ai</a>
+  &middot; pokrenuto na Coolifyju &middot; TLS preko Cloudflarea
+  &middot; MCP specifikacija 2025-03-26
+</footer>
+
+<div class="tricolor" aria-hidden="true">
+  <span class="red"></span><span class="white"></span><span class="navy"></span>
+</div>
+
+</body>
+</html>

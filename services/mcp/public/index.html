@@ -31,114 +31,7 @@
 <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#002F6C" />
 
-<style>
-:root {
-  --navy: #002F6C;
-  --navy-hover: #001D4A;
-  --red: #FF0000;
-  --muted: #5A6570;
-  --border: #E1E5EA;
-  --surface: #F5F7F9;
-  --bg: #FFFFFF;
-  --success: #2E8540;
-  font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: var(--bg); color: var(--navy); }
-body { min-height: 100vh; display: flex; flex-direction: column; line-height: 1.55; }
-
-.tricolor { display: flex; height: 6px; }
-.tricolor span { flex: 1; }
-.tricolor .red { background: var(--red); }
-.tricolor .white { background: var(--bg); }
-.tricolor .navy { background: var(--navy); }
-
-header { padding: 1.6rem 1.25rem; border-bottom: 1px solid var(--border); }
-.brand { display: flex; align-items: center; gap: .65rem; max-width: 48rem; margin: 0 auto; }
-.brand .word { font-weight: 800; font-size: 1.25rem; letter-spacing: .04em; color: var(--navy); }
-.brand .word .accent { color: var(--red); }
-
-main { flex: 1; padding: 2.5rem 1.25rem 3rem; max-width: 48rem; margin: 0 auto; width: 100%; }
-
-.hero { margin-bottom: 2rem; }
-h1 { font-size: 1.85rem; line-height: 1.2; margin: 0 0 .5rem; font-weight: 800; }
-.lede { color: var(--muted); margin: 0 0 1rem; font-size: 1.05rem; }
-
-.status {
-  display: inline-flex; align-items: center; gap: .4rem;
-  background: #E0F1E5; color: var(--success);
-  padding: .3rem .7rem; border-radius: 999px;
-  font-size: .85rem; font-weight: 600;
-}
-.status::before {
-  content: ""; width: .55rem; height: .55rem; border-radius: 50%;
-  background: var(--success);
-}
-
-section { margin-bottom: 1.75rem; }
-.card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: .75rem; padding: 1.5rem 1.6rem;
-}
-
-h2 {
-  font-size: .85rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .06em; color: var(--muted);
-  margin: 0 0 .9rem;
-}
-
-p { margin: 0 0 .75rem; color: var(--navy); }
-p:last-child { margin-bottom: 0; }
-
-a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; font-weight: 600; }
-a:hover { color: var(--red); }
-
-code {
-  background: var(--bg); border: 1px solid var(--border);
-  padding: .1rem .4rem; border-radius: 4px;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: .9em; color: var(--navy);
-}
-pre {
-  background: var(--bg); border: 1px solid var(--border);
-  padding: 1rem 1.1rem; border-radius: .5rem;
-  overflow-x: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: .88rem; line-height: 1.5; color: var(--navy);
-  margin: .5rem 0 0;
-}
-
-ul.endpoints { list-style: none; padding: 0; margin: 0; }
-ul.endpoints li {
-  display: flex; justify-content: space-between; gap: 1rem;
-  padding: .55rem 0; border-bottom: 1px solid var(--border);
-  font-size: .92rem; flex-wrap: wrap;
-}
-ul.endpoints li:last-child { border-bottom: 0; }
-ul.endpoints code {
-  background: transparent; border: 0; padding: 0;
-  color: var(--red); font-weight: 600;
-}
-ul.endpoints .desc { color: var(--muted); }
-
-footer {
-  padding: 1.25rem; border-top: 1px solid var(--border);
-  color: var(--muted); font-size: .85rem; text-align: center;
-}
-footer a { color: var(--navy); font-weight: 600; text-decoration: none; }
-footer a:hover { text-decoration: underline; color: var(--red); }
-
-@media (max-width: 560px) {
-  header { padding: .9rem 1rem; }
-  .brand .word { font-size: 1.1rem; }
-  main { padding: 1.5rem 1rem 2rem; }
-  h1 { font-size: 1.45rem; }
-  .lede { font-size: .95rem; }
-  .card { padding: 1.1rem 1.15rem; border-radius: .6rem; }
-  pre { font-size: .82rem; padding: .8rem .9rem; }
-  ul.endpoints li { flex-direction: column; gap: .2rem; padding: .45rem 0; }
-}
-</style>
+<link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
 
@@ -148,99 +41,121 @@ footer a:hover { text-decoration: underline; color: var(--red); }
 
 <header>
   <div class="brand">
-    <svg viewBox="0 0 512 512" width="40" height="40" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="hdrFlag" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#FF0000"/><stop offset="33.3%" stop-color="#FF0000"/>
-          <stop offset="33.3%" stop-color="#FFFFFF"/><stop offset="66.6%" stop-color="#FFFFFF"/>
-          <stop offset="66.6%" stop-color="#002F6C"/><stop offset="100%" stop-color="#002F6C"/>
-        </linearGradient>
-      </defs>
-      <rect width="512" height="512" rx="32" fill="white"/>
-      <path d="M72 64H248C354.071 64 440 149.929 440 256C440 362.071 354.071 448 248 448H72V64Z" fill="url(#hdrFlag)"/>
-      <path d="M168 160H248C301.019 160 344 202.981 344 256C344 309.019 301.019 352 248 352H168V160Z" fill="white"/>
-      <g stroke="#002F6C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="205" y1="205" x2="295" y2="225"/><line x1="295" y1="225" x2="285" y2="285"/>
-        <line x1="285" y1="285" x2="205" y2="307"/><line x1="205" y1="307" x2="205" y2="205"/>
-        <line x1="205" y1="205" x2="245" y2="256"/><line x1="295" y1="225" x2="245" y2="256"/>
-        <line x1="285" y1="285" x2="245" y2="256"/><line x1="205" y1="307" x2="245" y2="256"/>
-      </g>
-      <g fill="#002F6C">
-        <circle cx="205" cy="205" r="10"/><circle cx="295" cy="225" r="10"/>
-        <circle cx="205" cy="307" r="10"/><circle cx="285" cy="285" r="10"/>
-        <circle cx="245" cy="256" r="14"/>
-      </g>
-    </svg>
-    <div class="word">DOMOVINA<span class="accent">.ai</span></div>
+    <a href="/">
+      <svg viewBox="0 0 512 512" width="36" height="36" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="hdrFlag" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#FF0000"/><stop offset="33.3%" stop-color="#FF0000"/>
+            <stop offset="33.3%" stop-color="#FFFFFF"/><stop offset="66.6%" stop-color="#FFFFFF"/>
+            <stop offset="66.6%" stop-color="#002F6C"/><stop offset="100%" stop-color="#002F6C"/>
+          </linearGradient>
+        </defs>
+        <rect width="512" height="512" rx="32" fill="white"/>
+        <path d="M72 64H248C354.071 64 440 149.929 440 256C440 362.071 354.071 448 248 448H72V64Z" fill="url(#hdrFlag)"/>
+        <path d="M168 160H248C301.019 160 344 202.981 344 256C344 309.019 301.019 352 248 352H168V160Z" fill="white"/>
+        <g stroke="#002F6C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="205" y1="205" x2="295" y2="225"/><line x1="295" y1="225" x2="285" y2="285"/>
+          <line x1="285" y1="285" x2="205" y2="307"/><line x1="205" y1="307" x2="205" y2="205"/>
+          <line x1="205" y1="205" x2="245" y2="256"/><line x1="295" y1="225" x2="245" y2="256"/>
+          <line x1="285" y1="285" x2="245" y2="256"/><line x1="205" y1="307" x2="245" y2="256"/>
+        </g>
+        <g fill="#002F6C">
+          <circle cx="205" cy="205" r="10"/><circle cx="295" cy="225" r="10"/>
+          <circle cx="205" cy="307" r="10"/><circle cx="285" cy="285" r="10"/>
+          <circle cx="245" cy="256" r="14"/>
+        </g>
+      </svg>
+      <span class="word">DOMOVINA<span class="accent">.ai</span></span>
+    </a>
   </div>
+  <nav class="docnav" aria-label="Dokumentacija">
+    <a href="/" class="active">Pregled</a>
+    <a href="/tools">Alati</a>
+    <a href="/pricing">Ograničenja</a>
+  </nav>
 </header>
 
 <main>
 
   <div class="hero">
-    <h1>Podcast MCP poslužitelj</h1>
+    <h1>Domovina Podcast MCP</h1>
     <p class="lede">
-      Model Context Protocol poslužitelj za semantičko pretraživanje hrvatskog
-      katoličkog i političkog podcast korpusa. Spaja se na Claude.ai i Claude Desktop
-      kao prilagođeni konektor.
+      Povežite svoj AI alat sa zbirkom hrvatskih katoličkih i političkih podcasta
+      putem službenog Domovina MCP poslužitelja.
     </p>
     <span class="status">na mreži</span>
   </div>
 
   <section>
-    <div class="card">
-      <h2>Što je ovo</h2>
-      <p>
-        Javni MCP poslužitelj koji nudi alat <code>search_podcasts</code> nad
-        vektorskim spremnikom (ClickHouse) hrvatskih katoličkih i političkih podcasta.
-        Korpus je prikupljen i transkribiran u sestrinskom repozitoriju
-        <a href="https://github.com/domovinatv/fetch.domovina.tv">fetch.domovina.tv</a>
-        (NVIDIA Canary ASR i pyannote dijarizacija) te vektoriziran modelom
-        bge-m3 (1024 dimenzije).
-      </p>
-    </div>
+    <h2>Zašto Domovina Podcast MCP?</h2>
+    <p>
+      <a href="https://modelcontextprotocol.io">Model Context Protocol (MCP)</a>
+      standardizirani je način na koji AI alati pristupaju vanjskim izvorima znanja.
+      Povezivanjem AI alata (poput Claudea ili ChatGPT-a) s Domovina MCP poslužiteljem
+      proširujete njihove mogućnosti istim transkriptima i vektorskim spremnikom koji
+      napajaju pretraživanje na platformi DOMOVINA.ai.
+    </p>
+    <p>
+      Korpus je prikupljen i transkribiran u sestrinskom repozitoriju
+      <a href="https://github.com/domovinatv/fetch.domovina.tv">fetch.domovina.tv</a>
+      (NVIDIA Canary ASR i pyannote dijarizacija) te vektoriziran modelom bge-m3
+      (1024 dimenzije) u ClickHouse spremniku.
+    </p>
   </section>
 
   <section>
-    <div class="card">
-      <h2>Spajanje (Claude.ai i Claude Desktop)</h2>
-      <p>U Claude.ai otvorite <strong>Profil → Custom Integrations</strong> i dodajte vlastiti MCP poslužitelj:</p>
-<pre>URL: https://mcp.domovina.ai
-Autorizacija: OAuth (automatsko otkrivanje preko .well-known)</pre>
-      <p style="margin-top: 1rem">
-        Poslužitelj podržava dinamičku registraciju klijenta (DCR, RFC 7591) —
-        klijent se sam registrira i prolazi kroz tok autorizacije s automatskim
-        odobrenjem. Nije potrebno ručno postavljanje Bearer ključa.
-      </p>
-    </div>
+    <h2>Kako početi</h2>
+    <p>Daljinski MCP poslužitelj dostupan je na:</p>
+<pre><code>https://mcp.domovina.ai</code></pre>
+    <p>Trenutno je dostupan jedan alat za pretraživanje korpusa — <a href="/tools">popis alata</a>.</p>
   </section>
 
   <section>
-    <div class="card">
-      <h2>Krajnje točke</h2>
-      <ul class="endpoints">
-        <li><code>POST /</code><span class="desc">MCP zahtjevi (Streamable HTTP)</span></li>
-        <li><code>GET /health</code><span class="desc">provjera dostupnosti (javno)</span></li>
-        <li><code>GET /.well-known/oauth-authorization-server</code><span class="desc">OAuth metapodaci</span></li>
-        <li><code>GET /.well-known/oauth-protected-resource</code><span class="desc">metapodaci resursa</span></li>
-        <li><code>POST /register</code><span class="desc">OAuth dinamička registracija klijenta</span></li>
-        <li><code>GET /authorize</code><span class="desc">OAuth autorizacija (automatsko odobrenje)</span></li>
-        <li><code>POST /token</code><span class="desc">razmjena OAuth tokena</span></li>
-      </ul>
-    </div>
+    <h2>Autentifikacija</h2>
+    <p>Većina MCP klijenata podržava OAuth konfiguraciju. U klijent dodajte ovu postavku:</p>
+<pre><code>{
+  "mcpServers": {
+    "domovina": {
+      "url": "https://mcp.domovina.ai"
+    }
+  }
+}</code></pre>
+    <p>Pri prvom spajanju klijent prolazi kroz dinamičku registraciju (DCR, RFC 7591) i automatski odobreni OAuth tok:</p>
+    <ol>
+      <li>Klijent se automatski registrira preko <code>POST /register</code></li>
+      <li>Otvara se URL <code>GET /authorize</code> — odobrenje je automatsko, bez potvrde korisnika</li>
+      <li>Klijent razmjenjuje autorizacijski kod za Bearer token na <code>POST /token</code></li>
+    </ol>
+    <p>Nakon autentifikacije svi alati postaju dostupni u klijentu. Nije potrebno ručno postavljanje ključa.</p>
+    <h3>Claude.ai</h3>
+    <p>U sučelju otvorite <strong>Profil → Custom Integrations</strong>, dodajte „Domovina Podcast" i kao URL upišite <code>https://mcp.domovina.ai</code>. Pri prvom pozivu alata pokrenut će se OAuth tok automatski.</p>
+    <h3>Claude Desktop</h3>
+    <p>U <code>claude_desktop_config.json</code> dodajte gornju <code>mcpServers</code> postavku. Claude Desktop će sam pokrenuti <code>npx mcp-remote</code> proxy i prolaziti kroz OAuth.</p>
   </section>
 
   <section>
-    <div class="card">
-      <h2>Izvorni kod</h2>
-      <p>
-        Repozitorij:
-        <a href="https://github.com/domovinatv/domovina-rag">github.com/domovinatv/domovina-rag</a>
-        &middot; licenca:
-        <a href="https://github.com/domovinatv/domovina-rag/blob/main/LICENSE">AGPL-3.0</a>
-      </p>
-    </div>
+    <h2>Dostupnost</h2>
+    <p>
+      Servis je javno dostupan kao MVP — bez registracije računa, bez plaćanja.
+      Ograničenja korištenja po klijentu opisana su na stranici
+      <a href="/pricing">Ograničenja zahtjeva</a>.
+    </p>
   </section>
+
+  <section>
+    <h2>Izvorni kod i licenca</h2>
+    <p>
+      Repozitorij:
+      <a href="https://github.com/domovinatv/domovina-rag">github.com/domovinatv/domovina-rag</a>
+      &middot; licenca:
+      <a href="https://github.com/domovinatv/domovina-rag/blob/main/LICENSE">AGPL-3.0</a>
+    </p>
+  </section>
+
+  <div class="page-nav">
+    <span class="spacer"></span>
+    <a href="/tools" class="next">Podržani alati</a>
+  </div>
 
 </main>
 
