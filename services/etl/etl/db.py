@@ -136,6 +136,15 @@ class ChClient:
     def close(self) -> None:
         self.client.close()
 
+    def indexed_youtube_ids(self) -> set[str]:
+        """Vrati set youtube_id-jeva koji već imaju barem jedan chunk u CH.
+
+        Koristi se za `etl retry-missing` da identificira epizode koje su na
+        disku ali nikad nisu ingestirane (npr. fail-ane preko httpx.ReadTimeout).
+        """
+        result = self.client.query("SELECT DISTINCT youtube_id FROM rag_chunks")
+        return {row[0] for row in result.result_rows}
+
     def insert_chunks(self, rows: Sequence[Sequence]) -> None:
         """Batch insert u `rag_chunks`. Re-insert je idempotentan jer je tablica
         ReplacingMergeTree na `inserted_at` — najnoviji insert za isti

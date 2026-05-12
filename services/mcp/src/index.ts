@@ -1,32 +1,25 @@
 // MCP server entry point. Bira transport (stdio | http) iz env varijable.
 //
-//   stdio  → za Claude Desktop dev (proces se spawn-a kroz claude_desktop_config.json)
-//   http   → za production deploy (Coolify), Express + Streamable HTTP + OAuth 2.1
+//   stdio  → Claude Desktop dev (spawn-an kroz claude_desktop_config.json)
+//   http   → Production Coolify deploy, Express + Streamable HTTP + OAuth 2.1 + DCR
 //
-// Streamable HTTP je trenutni MCP transport (spec 2025-03-26+) — single endpoint
-// /mcp koji handluje POST (request → JSON ili SSE stream), GET (server-initiated
-// notifications preko SSE), i DELETE (session termination). `Mcp-Session-Id`
-// header tracka session.
-//
-// Auth podržava dva mode-a paralelno:
-// - **OAuth 2.1 + DCR** (Claude.ai Custom Connectors): /authorize, /token,
-//   /register, metadata na .well-known/*. Implementirano preko SDK mcpAuthRouter.
-//   Klijenti se dynamic-registriraju (RFC 7591) i prolaze PKCE Authorization Code
-//   flow s auto-approve-om.
-// - **Static API key** (CI smoke test, e2e, legacy klijenti): `Authorization: Bearer
-//   $MCP_API_KEY`. Bypass-a OAuth dance, direktno se prepoznaje u verifyAccessToken.
+// Auth: OAuth 2.1 + DCR (PG-backed) + static MCP_API_KEY (također seeded u PG-u
+// kao pre-issued token za client_id='static-api-key'). Sav auth state u PG-u →
+// restart-perzistencija + audit log po request-u.
 
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
-import express, { type Request, type Response } from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 
-import { LocalOAuthProvider } from "./auth.js";
+import { PgOAuthProvider } from "./auth.js";
 import { loadConfig } from "./config.js";
-import { createCh } from "./db.js";
+import { createCh, createPg } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
 import { createServer } from "./server.js";
 
@@ -37,8 +30,6 @@ async function main() {
   const embedder = new EmbedderClient(config.embedderUrl);
 
   if (config.transport === "stdio") {
-    // Stdio: log na stderr (stdout je rezerviran za JSON-RPC frames).
-    // Single Server instance jer postoji samo jedan stdio kanal.
     console.error(`[mcp] ${config.serviceName} v${config.serviceVersion} → stdio`);
     const server = createServer({ config, ch, embedder });
     const transport = new StdioServerTransport();
@@ -47,28 +38,43 @@ async function main() {
   }
 
   // ─── HTTP + Streamable Transport + OAuth ─────────────────────
-  const app = express();
-  app.use(express.json({ limit: "1mb" }));
-
-  // Health check — Docker HEALTHCHECK gađa ovo. NE traži auth.
-  app.get("/health", (_req, res) => {
-    res.json({ status: "ok", service: config.serviceName, version: config.serviceVersion });
-  });
-
-  // OAuth provider — in-memory clients/tokens. Static API key (legacy) je
-  // prepoznat side-by-side s issued OAuth tokenima.
-  const oauthProvider = new LocalOAuthProvider({
+  const pg = createPg(config.postgresUrl);
+  const oauthProvider = new PgOAuthProvider({
+    pg,
     staticApiKey: config.authMode === "apikey" ? config.apiKey : null,
     staticScopes: ["mcp"],
   });
 
-  // OAuth metadata + endpoints (RFC 8414, RFC 7591, RFC 6749/9700, RFC 7636).
-  // SDK auto-mountira: /.well-known/oauth-authorization-server, /.well-known/
-  // oauth-protected-resource, /authorize, /token, /register, /revoke.
-  //
-  // issuerUrl mora biti public URL servisa (s https i bez query/fragment).
-  // U devu se setupira preko PUBLIC_BASE_URL env-a (npr. ngrok), u produkciji
-  // preko Coolify-ja postavljeno na cloud hostname.
+  // Seedaj static API key kao PG record (idempotent) — audit log radi za njega isto.
+  await oauthProvider.seedStaticApiKey();
+
+  const app = express();
+
+  // Static public assets (favicon, icons, manifest) — public, bez auth-a.
+  const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
+  app.use(express.static(publicDir, { index: false, maxAge: "1h" }));
+
+  app.use(express.json({ limit: "1mb" }));
+
+  // Health check — NE traži auth.
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok", service: config.serviceName, version: config.serviceVersion });
+  });
+
+  // Browser landing — GET / s Accept: text/html (NE application/json ili SSE)
+  // vraća HTML stranicu umjesto OAuth challenge-a.
+  app.get("/", (req: Request, res: Response, next: NextFunction) => {
+    const accept = req.header("accept") || "";
+    const wantsHtml = accept.includes("text/html");
+    const wantsMcp = accept.includes("application/json") || accept.includes("text/event-stream");
+    if (wantsHtml && !wantsMcp) {
+      res.sendFile(path.join(publicDir, "index.html"));
+      return;
+    }
+    next();
+  });
+
+  // OAuth endpoints (SDK auto-mounta: /authorize, /token, /register, /.well-known/*)
   const issuerUrl = new URL(config.publicBaseUrl);
   app.use(
     mcpAuthRouter({
@@ -79,23 +85,40 @@ async function main() {
     }),
   );
 
-  // SDK Bearer auth middleware — provjerava `Authorization: Bearer <token>`,
-  // delegira na `oauthProvider.verifyAccessToken(token)`. Static API key
-  // prolazi isti path jer ga provider prepoznaje.
   const bearer = requireBearerAuth({ verifier: oauthProvider });
 
-  // Streamable HTTP transport — stateful mode. Svaki sessija dobiva svoj
-  // `Server` instance jer SDK Server može biti spojen na samo jedan transport.
+  // Streamable HTTP transport — stateful, per-sessija novi Server instance.
   type Session = {
     server: ReturnType<typeof createServer>;
     transport: StreamableHTTPServerTransport;
   };
   const sessions = new Map<string, Session>();
 
-  // Single endpoint hand-ling sve metode (POST, GET, DELETE).
-  // Root "/" je canonical — `mcp.domovina.ai` subdomena već encode-a "MCP" semantic.
-  // "/mcp" ostaje za backward-compat (klijenti koji su konfigurirali stari URL).
-  app.all(["/", "/mcp"], bearer, async (req: Request, res: Response) => {
+  // Audit middleware — logira u oauth_audit_log nakon response-a preko `finish` event-a.
+  // Auth info iz req.auth se očita TEK kad je bearer middleware uspješno provjerio.
+  // Za fail (401) ne logiramo jer ne znamo client_id (token je invalid).
+  const audit = (req: Request, res: Response, next: NextFunction) => {
+    const startedAt = Date.now();
+    res.on("finish", () => {
+      const authInfo = (req as Request & { auth?: { token: string; clientId: string } }).auth;
+      if (!authInfo?.token) return; // 401 fail-ovi se ne logiraju (no client identity)
+      void oauthProvider.recordAccess({
+        token: authInfo.token,
+        clientId: authInfo.clientId,
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        latencyMs: Date.now() - startedAt,
+        userAgent: req.header("user-agent"),
+        ip: req.ip,
+        error: res.statusCode >= 400 ? `HTTP ${res.statusCode}` : undefined,
+      });
+    });
+    next();
+  };
+
+  // /mcp + / (root canonical) — Streamable HTTP + auth + audit.
+  app.all(["/", "/mcp"], bearer, audit, async (req: Request, res: Response) => {
     try {
       const incomingSessionId = req.header("mcp-session-id");
       let session: Session | undefined;
@@ -111,7 +134,6 @@ async function main() {
           return;
         }
       } else if (req.method === "POST" && isInitializeRequest(req.body)) {
-        // Nova sesija — fresh Server + fresh transport.
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
         });
@@ -140,7 +162,7 @@ async function main() {
         sessions.set(session.transport.sessionId, session);
       }
     } catch (err) {
-      console.error("[mcp] /mcp handler error:", err);
+      console.error("[mcp] handler error:", err);
       if (!res.headersSent) {
         res.status(500).json({
           jsonrpc: "2.0",
@@ -153,7 +175,7 @@ async function main() {
 
   const httpServer = app.listen(config.httpPort, () => {
     console.error(
-      `[mcp] ${config.serviceName} v${config.serviceVersion} → http :${config.httpPort} (issuer=${issuerUrl}, auth=oauth+apikey, transport=streamable-http)`,
+      `[mcp] ${config.serviceName} v${config.serviceVersion} → http :${config.httpPort} (issuer=${issuerUrl}, auth=oauth+apikey+pg, audit=on)`,
     );
   });
 
@@ -161,6 +183,7 @@ async function main() {
     console.error(`[mcp] ${sig} → shutting down`);
     httpServer.close();
     void ch.close();
+    void pg.end();
     process.exit(0);
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
