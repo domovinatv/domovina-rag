@@ -124,42 +124,23 @@ async function main() {
     );
     res.type("html").send(renderAdminPage(nonce));
   });
-  app.get("/admin/api/stats", requireAdmin, (req, res) => {
-    void getStats(adminDeps, req, res).catch((err) => {
-      console.error("[admin] stats failed:", err);
-      if (!res.headersSent) res.status(500).json({ error: "internal" });
+  // Wrapper koji loga error u stderr + vraća stvarnu poruku u response body.
+  // Admin endpoint je gated ADMIN_API_KEY-om → leak detalja je OK (i nužan za debug).
+  type AdminHandler = (deps: typeof adminDeps, req: Request, res: Response) => Promise<void>;
+  const wrap = (name: string, handler: AdminHandler) => (req: Request, res: Response) => {
+    void handler(adminDeps, req, res).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      console.error(`[admin] ${name} failed:`, msg, stack);
+      if (!res.headersSent) res.status(500).json({ error: "internal", detail: msg });
     });
-  });
-  app.get("/admin/api/clients", requireAdmin, (req, res) => {
-    void listClients(adminDeps, req, res).catch((err) => {
-      console.error("[admin] listClients failed:", err);
-      if (!res.headersSent) res.status(500).json({ error: "internal" });
-    });
-  });
-  app.delete("/admin/api/clients/:client_id", requireAdmin, (req, res) => {
-    void deleteClient(adminDeps, req, res).catch((err) => {
-      console.error("[admin] deleteClient failed:", err);
-      if (!res.headersSent) res.status(500).json({ error: "internal" });
-    });
-  });
-  app.get("/admin/api/tokens", requireAdmin, (req, res) => {
-    void listTokens(adminDeps, req, res).catch((err) => {
-      console.error("[admin] listTokens failed:", err);
-      if (!res.headersSent) res.status(500).json({ error: "internal" });
-    });
-  });
-  app.delete("/admin/api/tokens/:prefix", requireAdmin, (req, res) => {
-    void revokeToken(adminDeps, req, res).catch((err) => {
-      console.error("[admin] revokeToken failed:", err);
-      if (!res.headersSent) res.status(500).json({ error: "internal" });
-    });
-  });
-  app.get("/admin/api/audit", requireAdmin, (req, res) => {
-    void getAuditLog(adminDeps, req, res).catch((err) => {
-      console.error("[admin] getAuditLog failed:", err);
-      if (!res.headersSent) res.status(500).json({ error: "internal" });
-    });
-  });
+  };
+  app.get("/admin/api/stats", requireAdmin, wrap("stats", getStats));
+  app.get("/admin/api/clients", requireAdmin, wrap("listClients", listClients));
+  app.delete("/admin/api/clients/:client_id", requireAdmin, wrap("deleteClient", deleteClient));
+  app.get("/admin/api/tokens", requireAdmin, wrap("listTokens", listTokens));
+  app.delete("/admin/api/tokens/:prefix", requireAdmin, wrap("revokeToken", revokeToken));
+  app.get("/admin/api/audit", requireAdmin, wrap("getAuditLog", getAuditLog));
 
   const bearer = requireBearerAuth({ verifier: oauthProvider });
 

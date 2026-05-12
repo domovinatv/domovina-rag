@@ -153,10 +153,10 @@ export async function listTokens(deps: AdminDeps, req: Request, res: Response): 
       expires_at,
       (expires_at <= now()) AS is_expired
     FROM oauth_access_tokens
-    WHERE ($1::text IS NULL OR client_id = $1)
+    WHERE ($1::text IS NULL OR client_id = $1::text)
       AND ($2::boolean = false OR expires_at > now())
     ORDER BY last_used_at DESC NULLS LAST
-    LIMIT $3
+    LIMIT $3::int
   `, [clientId, activeOnly, limit]);
 
   res.json({
@@ -217,15 +217,18 @@ export async function getAuditLog(deps: AdminDeps, req: Request, res: Response):
   const beforeId = Number.isFinite(beforeIdRaw) ? beforeIdRaw : null;
 
   // Cursor pagination preko BIGSERIAL id-a (idx_audit_timestamp pokriva ORDER).
+  // Eksplicitan ::type cast na svako binding mjesto — pg-node šalje NULL bez
+  // type-info-a, pa bez cast-a PG ne može deriveati tip ($2::timestamptz IS NULL
+  // u prvom usage-u nije dovoljno; treba i kod `timestamp >= $2::timestamptz`).
   const r = await deps.pg.query(`
     SELECT id, timestamp, client_id, method, path, status_code, latency_ms, ip, user_agent, error
     FROM oauth_audit_log
-    WHERE ($1::text IS NULL OR client_id = $1)
-      AND ($2::timestamptz IS NULL OR timestamp >= $2)
-      AND ($3::int IS NULL OR status_code >= $3)
-      AND ($4::bigint IS NULL OR id < $4)
+    WHERE ($1::text IS NULL OR client_id = $1::text)
+      AND ($2::timestamptz IS NULL OR timestamp >= $2::timestamptz)
+      AND ($3::int IS NULL OR status_code >= $3::int)
+      AND ($4::bigint IS NULL OR id < $4::bigint)
     ORDER BY id DESC
-    LIMIT $5
+    LIMIT $5::int
   `, [clientId, since, statusCodeGte, beforeId, limit]);
 
   const lastRow = r.rows[r.rows.length - 1];
