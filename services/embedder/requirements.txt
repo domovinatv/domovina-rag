@@ -1,0 +1,16 @@
+# Embedder service — bge-m3 dense embeddings preko FastAPI.
+# Pinned na konkretne verzije za reproducibilan build.
+
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+
+# ML stack
+# CPU-only PyTorch za default; za CUDA/MPS prebuild image lokalno.
+torch==2.5.1
+sentence-transformers==3.2.1
+transformers==4.45.2
+
+# bge-m3 koristi XLMRobertaTokenizerFast → sentencepiece + tokenizers su tranzitivni,
+# ali eksplicitno radi predvidljivosti
+sentencepiece==0.2.0
