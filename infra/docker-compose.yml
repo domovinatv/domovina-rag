@@ -50,8 +50,27 @@ services:
       - hf_cache:/root/.cache/huggingface
     networks: [internal]
     restart: unless-stopped
-    # Faza 1: gradi se kasnije, ovaj service za sad ne postoji
+    # `full` profile zato što je build velik (~3GB s torch+bge-m3 weights);
+    # za minimal dev (samo DB-ovi) `docker compose up postgres clickhouse` ne dira ovo.
     profiles: ["full"]
+
+  etl:
+    build: ../services/etl
+    depends_on:
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      embedder: { condition: service_healthy }
+    environment:
+      POSTGRES_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CLICKHOUSE_URL: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@clickhouse:8123/${CLICKHOUSE_DB}
+      EMBEDDER_URL: http://embedder:8000
+    volumes:
+      # Read-only mount producer output direktorija. Override DATA_SOURCE_DIR u .env-u
+      # da uperi na lokalni path (npr. `../fetch.domovina.tv/storage/output`).
+      - ${DATA_SOURCE_DIR}:/data:ro
+    networks: [internal]
+    # One-shot job — pokreće se preko `docker compose run --rm etl ingest --input /data`.
+    profiles: ["etl"]
 
   mcp:
     build: ../services/mcp
