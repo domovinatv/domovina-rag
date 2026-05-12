@@ -117,6 +117,17 @@ services:
       - "${MCP_PORT:-3000}:3000"
     networks: [internal, web]
     restart: unless-stopped
+    # Healthcheck — eksplicitno u compose (uz onaj iz Dockerfile-a) da ga Coolify
+    # sigurno pokupi i prikaže status. Bez ovog Coolify ne zna da MCP container
+    # nije spreman dok mu Express ne podigne :3000, što utječe i na deployment
+    # signal i na compose `depends_on: service_healthy` lančane. start_period
+    # daje serveru vremena za PG connection + OAuth seed (typično ~3-5s).
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
     # Bez profile-a — Coolify auto-startuje. Vidi komentar na `embedder` servisu.
 
 volumes:
