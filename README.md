@@ -164,6 +164,33 @@ Streamable HTTP transport je native-podržan u Claude.ai Custom Connectors i Cla
 
 Deploy preko [Coolify](https://app.domovina.link/) iz ovog repo-a; sync iz lokalne baze planiran preko R2 BACKUP/RESTORE (vidi [`docs/cloud_deployment_plan.md`](./docs/cloud_deployment_plan.md)).
 
+### Admin dashboard
+
+Server-rendered token revocation UI + audit log query na `/admin`:
+
+- **Aktivacija**: postavi `ADMIN_API_KEY` env var (npr. `openssl rand -base64 32 | tr -d '/=+' | cut -c1-32`). Bez toga `/admin*` vraća **404** (no fingerprint).
+- **UI**: `https://mcp.domovina.ai/admin` → prompt za API key na first load → spremi u browser localStorage → dashboard s `stats / clients / audit`. Revoke gumb po klijentu (cascade-briše tokens).
+- **REST**: pod `/admin/api/*` s `Authorization: Bearer $ADMIN_API_KEY`.
+
+```bash
+# Summary
+curl -H "Authorization: Bearer $ADMIN_API_KEY" https://mcp.domovina.ai/admin/api/stats
+
+# Clients
+curl -H "Authorization: Bearer $ADMIN_API_KEY" 'https://mcp.domovina.ai/admin/api/clients?include_static=false'
+
+# Audit log (cursor pagination preko before_id)
+curl -H "Authorization: Bearer $ADMIN_API_KEY" 'https://mcp.domovina.ai/admin/api/audit?status_code_gte=400&limit=50'
+
+# Revoke client (cascade-briše tokens; 403 ako client_id == static-api-key)
+curl -X DELETE -H "Authorization: Bearer $ADMIN_API_KEY" https://mcp.domovina.ai/admin/api/clients/{client_id}
+
+# Revoke specifični token (prefix lookup; ≥8 chars; 409 ako ambiguous)
+curl -X DELETE -H "Authorization: Bearer $ADMIN_API_KEY" https://mcp.domovina.ai/admin/api/tokens/{prefix}
+```
+
+Admin auth je **odvojen** od OAuth Bearer-a klijenata — admin operacije nisu protected-resource pristup nego authorization-server management. `static-api-key` klijent je zaštićen od DELETE-a (vraća 403).
+
 ## Struktura repo-a
 
 ```
