@@ -13,7 +13,9 @@
     "start:http": "MCP_TRANSPORT=http node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "dev:http": "MCP_TRANSPORT=http tsx watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node test/e2e/run.mjs",
+    "test:smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@clickhouse/client": "^1.7.0",
