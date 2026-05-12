@@ -71,7 +71,7 @@ Ako se zatekneš u skripti za fetch/convert/transkripciju — **prebaci se u fet
 Minimal viable backend:
 
 1. PostgreSQL s minimalnom shemom (`episodes`, `speakers` placeholder)
-2. ClickHouse s `rag_chunks` tablicom + USearch HNSW indeks
+2. ClickHouse s `rag_chunks` tablicom + `vector_similarity` HNSW indeks (CH 24.10+)
 3. Embedder service (bge-m3 preko FastAPI)
 4. MCP server s **jednim alatom**: `search_podcasts(query, channel?, limit?)`
 5. ETL skripta: čita `*.rag_combined.jsonl` iz lokalnog mount-a, batch insert u CH

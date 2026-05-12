@@ -16,8 +16,8 @@ Self-hosted, open-source stack koji:
 ```mermaid
 flowchart LR
     subgraph PROD["fetch.domovina.tv (producer)"]
-        YT[YouTube fetch] --> ASR[Whisper transkripcija]
-        ASR --> DIAR[pyannote dijarizacija]
+        YT[YouTube fetch] --> ASR[Canary ASR<br/>NVIDIA NeMo]
+        ASR --> DIAR[pyannote dijarizacija<br/>+ Sortformer ensemble]
         DIAR --> SUMM[Gemini summarization]
         SUMM --> CHUNK[RAG chunking]
         CHUNK --> JSONL["*.rag_combined.jsonl<br/>+ voice embeddings"]
@@ -75,14 +75,14 @@ sequenceDiagram
     participant CH as ClickHouse
     participant PG as PostgreSQL
 
-    Note over MCP,PG: Ingest (lokalno, jednokratno)
-    Note over CH: 92K chunkova × 1024-d vector +<br/>text + speakers + start_ts +<br/>youtube_id + channel
+    Note over MCP,PG: Ingest (lokalno, jednokratno + delta)
+    Note over CH: rag_chunks: 1024-d vector +<br/>text + speakers + start_ts +<br/>youtube_id + channel<br/>(target ~92K chunkova / 1843 epizoda)
 
     U->>MCP: "Pretraži: iskustvo kliničke smrti"
     MCP->>E: POST /embed (1 string)
     E-->>MCP: vector[1024]
     MCP->>CH: SELECT * FROM rag_chunks<br/>ORDER BY cosineDistance(embedding, ?)<br/>LIMIT 10
-    Note over CH: USearch HNSW index<br/>~10-50ms latency
+    Note over CH: vector_similarity HNSW index<br/>(CH 24.10+)<br/>~10-50ms latency
     CH-->>MCP: top-N chunks
     MCP->>PG: SELECT episode_title FROM episodes<br/>WHERE youtube_id IN (...)
     PG-->>MCP: titles

@@ -41,8 +41,8 @@ Arhitekturni dokumenti, data contract i implementacijski detalji producer side-a
 ```mermaid
 graph TB
     subgraph "Producer (fetch.domovina.tv)"
-        P[YouTube fetch] --> ASR[Whisper ASR]
-        ASR --> DIAR[pyannote diarization]
+        P[YouTube fetch] --> ASR[Canary ASR<br/>NVIDIA NeMo]
+        ASR --> DIAR[pyannote + Sortformer<br/>dijarizacija]
         DIAR --> CHUNK[RAG chunking]
         CHUNK --> JSONL[/"*.rag_combined.jsonl"/]
     end
