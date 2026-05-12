@@ -6,7 +6,7 @@ import httpx
 
 
 class EmbedderClient:
-    def __init__(self, base_url: str, timeout: float = 120.0) -> None:
+    def __init__(self, base_url: str, timeout: float = 300.0) -> None:
         self.base_url = base_url.rstrip("/")
         self._client = httpx.Client(base_url=self.base_url, timeout=timeout)
 

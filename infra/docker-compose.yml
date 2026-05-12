@@ -45,6 +45,10 @@ services:
     environment:
       EMBEDDER_MODEL: ${EMBEDDER_MODEL}
       EMBEDDER_DEVICE: ${EMBEDDER_DEVICE}
+      # bge-m3 native ctx = 8192 *tokenova* (~24-32K znakova HR teksta).
+      # Char-based limit u embedder app/main.py je samo safety margin;
+      # default 8192 chars je prerigorozan i odbija valjane chunkove.
+      EMBEDDER_MAX_TEXT_LEN: "32768"
     volumes:
       - hf_cache:/root/.cache/huggingface
     # `web` je potreban za prvi run jer sentence-transformers povlači

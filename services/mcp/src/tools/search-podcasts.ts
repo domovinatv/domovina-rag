@@ -105,8 +105,14 @@ export async function searchPodcasts(
   return rows.map((r) => {
     let episodeTitle: string | null = null;
     try {
-      const meta = JSON.parse(r.metadata) as { episode_title?: string };
-      episodeTitle = meta.episode_title ?? null;
+      // ETL pohranjuje cijeli JSONL redak u `metadata`. Producer trenutno
+      // koristi nested shape `{id, text, metadata: {title, ...}}`, ali stari
+      // dokumentirani shape ima flat `episode_title` na top-levelu.
+      const meta = JSON.parse(r.metadata) as {
+        episode_title?: string;
+        metadata?: { title?: string };
+      };
+      episodeTitle = meta.metadata?.title ?? meta.episode_title ?? null;
     } catch {
       // metadata nije validan JSON — proceed bez naslova
     }

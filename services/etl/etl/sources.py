@@ -1,9 +1,32 @@
 """Discovery i parsing producer outputa (`*.rag_combined.jsonl`).
 
-Path layout (vidi data_contract.md u fetch.domovina.tv):
+Path layout:
     {input_dir}/{channel_slug}/{basename}.rag_combined.jsonl
 
 `basename` ima oblik `{YYYYMMDD}_{title_sanitized}_yt_{youtube_id}`.
+
+JSONL shape (stvarni, observed 2026-05-12 — NE matcha data_contract.md koji opisuje
+aspirational schemu):
+
+    {
+      "id": "{youtube_id}_topic_{NNN}",        # chunk identifier
+      "text": "Tema: ...\\n\\n[Speaker] ...",   # tekst chunka
+      "metadata": {
+        "type": "topic_transcript",            # → chunk_strategy
+        "channel": "ad_deum_podcast",
+        "title": "...",                        # episode title
+        "youtube_id": "2fiE6NsRz8M",
+        "upload_date": "2025-05-10",
+        "topic": "...",
+        "speakers": ["Voditelj"],              # NB: imena, ne SPEAKER_XX tagovi
+        "start_time": "00:00:08",              # HH:MM:SS, NE float
+        "end_time": "00:02:43",
+        "topics": [...],
+        "chunk_index": 1,                      # NB: 1-based
+        "total_chunks": 52,
+        "has_speaker_names": true
+      }
+    }
 """
 
 from __future__ import annotations
@@ -17,6 +40,21 @@ from typing import Iterable, Iterator, Optional
 
 _JSONL_GLOB = "*.rag_combined.jsonl"
 _BASENAME_RE = re.compile(r"^(\d{8})_(.+)_yt_([A-Za-z0-9_-]{11})$")
+
+
+def _parse_hms(s: str) -> float:
+    """`HH:MM:SS` ili `HH:MM:SS.frac` → sekunde. Tolerantno na čisti broj."""
+    if not s:
+        return 0.0
+    parts = s.split(":")
+    try:
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + float(parts[1])
+        return float(s)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 @dataclass(frozen=True)
@@ -104,15 +142,16 @@ def stream_chunks(jsonl: JsonlFile) -> Iterator[Chunk]:
                 raise ValueError(
                     f"{jsonl.path}:{line_no} nije validan JSON: {e.msg}"
                 ) from e
+            meta = obj.get("metadata") or {}
             yield Chunk(
-                chunk_id=obj["chunk_id"],
-                youtube_id=obj["youtube_id"],
-                channel=obj["channel"],
-                chunk_index=int(obj["chunk_index"]),
-                chunk_strategy=obj.get("chunk_strategy", "combined"),
-                start_ts=float(obj.get("start_ts", 0.0)),
-                end_ts=float(obj.get("end_ts", 0.0)),
-                speakers=list(obj.get("speakers") or []),
+                chunk_id=obj["id"],
+                youtube_id=meta.get("youtube_id") or jsonl.youtube_id,
+                channel=meta.get("channel") or jsonl.channel_slug,
+                chunk_index=int(meta.get("chunk_index", 0)),
+                chunk_strategy=str(meta.get("type") or "combined"),
+                start_ts=_parse_hms(str(meta.get("start_time", "") or "")),
+                end_ts=_parse_hms(str(meta.get("end_time", "") or "")),
+                speakers=list(meta.get("speakers") or []),
                 text=obj["text"],
                 raw=obj,
             )
@@ -121,10 +160,10 @@ def stream_chunks(jsonl: JsonlFile) -> Iterator[Chunk]:
 def episode_meta_from_first_chunk(jsonl: JsonlFile) -> EpisodeMeta:
     """Pročita prvu liniju JSONL-a samo da izvuče episode-level metadata."""
     chunk = next(stream_chunks(jsonl))
-    raw = chunk.raw
+    meta = chunk.raw.get("metadata") or {}
     return EpisodeMeta(
         youtube_id=chunk.youtube_id,
         channel_slug=jsonl.channel_slug,
-        title=raw.get("episode_title"),
-        upload_date=raw.get("upload_date"),
+        title=meta.get("title"),
+        upload_date=meta.get("upload_date"),
     )

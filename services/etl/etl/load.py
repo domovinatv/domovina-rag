@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
 from dataclasses import dataclass
@@ -66,7 +67,14 @@ def load_file(
     )
 
     inserted = 0
-    upload_date = meta.upload_date or "1970-01-01"
+    upload_date_str = meta.upload_date or "1970-01-01"
+    try:
+        upload_date = _dt.date.fromisoformat(upload_date_str)
+    except ValueError:
+        # Pad/garbage → epoch placeholder. CH partition po `toYYYYMM(upload_date)`
+        # ne smije fail-ati zbog jedne loše vrijednosti.
+        log.warning("Nevažeći upload_date %r za %s — fallback epoch", upload_date_str, meta.youtube_id)
+        upload_date = _dt.date(1970, 1, 1)
     channel = meta.channel_slug
 
     for batch in _batched(stream_chunks(jsonl), batch_size):

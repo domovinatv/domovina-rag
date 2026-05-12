@@ -7,6 +7,10 @@
 CREATE DATABASE IF NOT EXISTS rag;
 USE rag;
 
+-- Vector similarity index je experimental u CH 24.x — treba ga eksplicitno
+-- omogućiti prije CREATE TABLE. `usearch` (stari naziv) je removed u 24.10.
+SET allow_experimental_vector_similarity_index = 1;
+
 -- ─── RAG chunks (primarni vector store) ────────────────────
 CREATE TABLE IF NOT EXISTS rag_chunks (
     chunk_id        String,
@@ -27,7 +31,9 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
 
     -- Indexi
     INDEX idx_text_tokens text TYPE tokenbf_v1(8192, 3, 0) GRANULARITY 4,
-    INDEX idx_embedding   embedding TYPE usearch('cosineDistance') GRANULARITY 1000
+    -- vector_similarity je nasljednik `usearch`/`annoy` u CH 24.10+.
+    -- Syntax: vector_similarity(metoda, metrika [, hnsw_m, ef_construction, dimensions])
+    INDEX idx_embedding   embedding TYPE vector_similarity('hnsw', 'cosineDistance') GRANULARITY 1000
 ) ENGINE = ReplacingMergeTree(inserted_at)
 PARTITION BY toYYYYMM(upload_date)
 ORDER BY (channel, upload_date, episode_id, chunk_index);
