@@ -18,6 +18,8 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import express, { type Request, type Response, type NextFunction } from "express";
 
 import { PgOAuthProvider } from "./auth.js";
+import { makeRequireAdmin } from "./admin-auth.js";
+import { deleteClient, getStats, listClients } from "./admin/handlers.js";
 import { loadConfig } from "./config.js";
 import { createCh, createPg } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
@@ -84,6 +86,30 @@ async function main() {
       resourceName: config.serviceName,
     }),
   );
+
+  // ─── Admin REST API ─────────────────────────────────────────
+  // Vlastiti auth (ADMIN_API_KEY Bearer), NE OAuth. Ako ADMIN_API_KEY nije set,
+  // middleware vraća 404 za sve /admin* → admin disabled.
+  const requireAdmin = makeRequireAdmin(config.adminApiKey);
+  const adminDeps = { pg };
+  app.get("/admin/api/stats", requireAdmin, (req, res) => {
+    void getStats(adminDeps, req, res).catch((err) => {
+      console.error("[admin] stats failed:", err);
+      if (!res.headersSent) res.status(500).json({ error: "internal" });
+    });
+  });
+  app.get("/admin/api/clients", requireAdmin, (req, res) => {
+    void listClients(adminDeps, req, res).catch((err) => {
+      console.error("[admin] listClients failed:", err);
+      if (!res.headersSent) res.status(500).json({ error: "internal" });
+    });
+  });
+  app.delete("/admin/api/clients/:client_id", requireAdmin, (req, res) => {
+    void deleteClient(adminDeps, req, res).catch((err) => {
+      console.error("[admin] deleteClient failed:", err);
+      if (!res.headersSent) res.status(500).json({ error: "internal" });
+    });
+  });
 
   const bearer = requireBearerAuth({ verifier: oauthProvider });
 
