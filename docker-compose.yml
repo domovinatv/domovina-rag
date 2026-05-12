@@ -1,10 +1,14 @@
 # Stack za domovina-rag.
-# Plan: ../../fetch.domovina.tv/docs/rag_clickhouse_postgres_plan.md §9
+# Plan: ../fetch.domovina.tv/docs/rag_clickhouse_postgres_plan.md §9
 #
 # Project name = prefix za sve resource imena (containers, networks, volumes).
-# Bez ovoga, default je naziv parent direktorija (`infra`), pa bi sve bilo
-# `infra-postgres-1` itd. Na Coolifyju (i lokalno kad runa-š više app-ova
-# paralelno), `domovina-rag-infra-*` jasno označava ovu stack-u.
+# `domovina-rag-infra-*` ime sačuvano radi backward compat s postojećim volume-ima
+# (lokalni dev podatci u `domovina-rag-infra_pg_data` itd.).
+#
+# Locira na repo root-u (NE u infra/) jer Coolify treat-a compose-file dir kao
+# project root i `build:` paths se resolvaju protiv njega. Init.sql skripte
+# i dalje žive u `infra/{postgres,clickhouse}/` — referenciramo ih s repo-root
+# relativnim path-em ispod.
 name: domovina-rag-infra
 
 services:
@@ -18,7 +22,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks: [internal]
     restart: unless-stopped
     healthcheck:
@@ -37,7 +41,7 @@ services:
       nofile: { soft: 262144, hard: 262144 }
     volumes:
       - ch_data:/var/lib/clickhouse
-      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./infra/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks: [internal]
     restart: unless-stopped
     healthcheck:
@@ -47,7 +51,7 @@ services:
       retries: 5
 
   embedder:
-    build: ../services/embedder
+    build: ./services/embedder
     environment:
       EMBEDDER_MODEL: ${EMBEDDER_MODEL}
       EMBEDDER_DEVICE: ${EMBEDDER_DEVICE}
@@ -68,7 +72,7 @@ services:
     # Coolify ne podržava `--profile` flag iz UI-a, pa profile-i NE valjaju u cloud-u.
 
   etl:
-    build: ../services/etl
+    build: ./services/etl
     # NB: embedder NIJE u depends_on namjerno — `EMBEDDER_URL` može pokazivati
     # na host (npr. dev MPS embedder na `host.docker.internal:8000`) ili na
     # containerized embedder. Sam URL je single source of truth; depends_on
@@ -83,7 +87,8 @@ services:
     volumes:
       # Read-only mount producer output direktorija. Override DATA_SOURCE_DIR u .env-u
       # da uperi na lokalni path (npr. `../fetch.domovina.tv/storage/output`).
-      - ${DATA_SOURCE_DIR}:/data:ro
+      # Default `/tmp` je placeholder za cloud (gdje ETL servis nije aktiviran — profiles=[etl]).
+      - ${DATA_SOURCE_DIR:-/tmp}:/data:ro
     # `web` mreža potrebna ako EMBEDDER_URL pokazuje na host.docker.internal
     # (Docker Desktop na Mac/Win to rješava preko host gateway-a, što ide
     # preko bridge mreže — ne radi na internal-only).
@@ -92,7 +97,7 @@ services:
     profiles: ["etl"]
 
   mcp:
-    build: ../services/mcp
+    build: ./services/mcp
     # NB: embedder NIJE u depends_on — vidi komentar na `etl` servisu.
     depends_on:
       postgres: { condition: service_healthy }
