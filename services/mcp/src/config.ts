@@ -22,6 +22,8 @@ export interface Config {
   embedderUrl: string;
   serviceName: string;
   serviceVersion: string;
+  // Admin dashboard / API. Ako null → /admin* vraća 404 (admin disabled).
+  adminApiKey: string | null;
 }
 
 export function loadConfig(): Config {
@@ -50,5 +52,6 @@ export function loadConfig(): Config {
     embedderUrl: optional("EMBEDDER_URL", "http://embedder:8000"),
     serviceName: "domovina-podcast",
     serviceVersion: "0.3.0",
+    adminApiKey: process.env.ADMIN_API_KEY || null,
   };
 }
