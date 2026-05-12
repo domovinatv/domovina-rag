@@ -24,6 +24,9 @@ export interface Config {
   serviceVersion: string;
   // Admin dashboard / API. Ako null → /admin* vraća 404 (admin disabled).
   adminApiKey: string | null;
+  // Rate limiting per client_id (in-memory sliding window).
+  rateLimitPerMinute: number;
+  rateLimitPerHour: number;
 }
 
 export function loadConfig(): Config {
@@ -53,5 +56,7 @@ export function loadConfig(): Config {
     serviceName: "domovina-podcast",
     serviceVersion: "0.3.0",
     adminApiKey: process.env.ADMIN_API_KEY || null,
+    rateLimitPerMinute: parseInt(optional("RATE_LIMIT_PER_MINUTE", "60"), 10),
+    rateLimitPerHour: parseInt(optional("RATE_LIMIT_PER_HOUR", "1000"), 10),
   };
 }

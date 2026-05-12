@@ -31,6 +31,7 @@ import { renderAdminPage } from "./admin/index.html.js";
 import { loadConfig } from "./config.js";
 import { createCh, createPg } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
+import { makeRateLimit } from "./rate-limit.js";
 import { createServer } from "./server.js";
 
 
@@ -144,6 +145,18 @@ async function main() {
 
   const bearer = requireBearerAuth({ verifier: oauthProvider });
 
+  // ─── Rate limiting (per client_id) ──────────────────────────
+  // In-memory sliding window. static-api-key je exempt (vidi rate-limit.ts).
+  // 429 + Retry-After kad client probije prozor. Counters resetiraju na restart.
+  const rateLimit = makeRateLimit({
+    perMinute: config.rateLimitPerMinute,
+    perHour: config.rateLimitPerHour,
+  });
+  // Sweep dead clients svakih 10 min — drži Map malenim kad DCR registrira
+  // klijente koji se više ne pojavljuju (Claude.ai reconnects, etc).
+  const rateLimitSweepInterval = setInterval(() => rateLimit.sweep(), 10 * 60 * 1000);
+  rateLimitSweepInterval.unref();
+
   // Streamable HTTP transport — stateful, per-sessija novi Server instance.
   type Session = {
     server: ReturnType<typeof createServer>;
@@ -174,8 +187,8 @@ async function main() {
     next();
   };
 
-  // /mcp + / (root canonical) — Streamable HTTP + auth + audit.
-  app.all(["/", "/mcp"], bearer, audit, async (req: Request, res: Response) => {
+  // /mcp + / (root canonical) — Streamable HTTP + auth + rate-limit + audit.
+  app.all(["/", "/mcp"], bearer, rateLimit.middleware, audit, async (req: Request, res: Response) => {
     try {
       const incomingSessionId = req.header("mcp-session-id");
       let session: Session | undefined;
