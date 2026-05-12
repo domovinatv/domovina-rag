@@ -1,6 +1,7 @@
 # Secrets
 .env
 .env.local
+.env.coolify
 *.pem
 *.key
 
@@ -43,6 +44,7 @@ out/
 # Logs
 *.log
 logs/
+.ingest-logs/
 
 # Coolify managed files (if syncing)
 .coolify/
