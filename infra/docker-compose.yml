@@ -47,7 +47,10 @@ services:
       EMBEDDER_DEVICE: ${EMBEDDER_DEVICE}
     volumes:
       - hf_cache:/root/.cache/huggingface
-    networks: [internal]
+    # `web` je potreban za prvi run jer sentence-transformers povlači
+    # bge-m3 weights s huggingface.co. Nakon prvog cache hita (hf_cache
+    # volume) ostali pull-ovi su no-op pa internet nije strogo nužan.
+    networks: [internal, web]
     restart: unless-stopped
     # `full` profile zato što je build velik (~3GB s torch+bge-m3 weights);
     # za minimal dev (samo DB-ovi) `docker compose up postgres clickhouse` ne dira ovo.
