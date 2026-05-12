@@ -68,33 +68,39 @@ services:
 
   etl:
     build: ../services/etl
+    # NB: embedder NIJE u depends_on namjerno — `EMBEDDER_URL` može pokazivati
+    # na host (npr. dev MPS embedder na `host.docker.internal:8000`) ili na
+    # containerized embedder. Sam URL je single source of truth; depends_on
+    # bi forsirao container path.
     depends_on:
       postgres: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
-      embedder: { condition: service_healthy }
     environment:
       POSTGRES_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CLICKHOUSE_URL: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@clickhouse:8123/${CLICKHOUSE_DB}
-      EMBEDDER_URL: http://embedder:8000
+      EMBEDDER_URL: ${EMBEDDER_URL:-http://embedder:8000}
     volumes:
       # Read-only mount producer output direktorija. Override DATA_SOURCE_DIR u .env-u
       # da uperi na lokalni path (npr. `../fetch.domovina.tv/storage/output`).
       - ${DATA_SOURCE_DIR}:/data:ro
-    networks: [internal]
+    # `web` mreža potrebna ako EMBEDDER_URL pokazuje na host.docker.internal
+    # (Docker Desktop na Mac/Win to rješava preko host gateway-a, što ide
+    # preko bridge mreže — ne radi na internal-only).
+    networks: [internal, web]
     # One-shot job — pokreće se preko `docker compose run --rm etl ingest --input /data`.
     profiles: ["etl"]
 
   mcp:
     build: ../services/mcp
+    # NB: embedder NIJE u depends_on — vidi komentar na `etl` servisu.
     depends_on:
       postgres: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
-      embedder: { condition: service_healthy }
     environment:
       MCP_TRANSPORT: http
       POSTGRES_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CLICKHOUSE_URL: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@clickhouse:8123/${CLICKHOUSE_DB}
-      EMBEDDER_URL: http://embedder:8000
+      EMBEDDER_URL: ${EMBEDDER_URL:-http://embedder:8000}
       MCP_AUTH_MODE: ${MCP_AUTH_MODE}
       MCP_API_KEY: ${MCP_API_KEY}
     ports:
