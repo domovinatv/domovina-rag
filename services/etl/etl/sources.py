@@ -105,7 +105,12 @@ def discover_jsonl(input_dir: Path, channel_filter: Optional[str] = None) -> lis
     if channel_filter:
         channel_dirs = [input_dir / channel_filter]
     else:
-        channel_dirs = [d for d in input_dir.iterdir() if d.is_dir()]
+        # Filtriraj dotfile-ove prije is_dir() — macOS resource fork-ovi (`._<name>`)
+        # ne mogu se stat-ati unutar Docker mount-a i ruše skeniranje.
+        channel_dirs = [
+            d for d in input_dir.iterdir()
+            if not d.name.startswith(".") and d.is_dir()
+        ]
 
     for ch_dir in channel_dirs:
         if not ch_dir.exists():
