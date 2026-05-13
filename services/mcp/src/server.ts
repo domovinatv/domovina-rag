@@ -14,6 +14,11 @@ import {
   SearchPodcastsInput,
   searchPodcastsJsonSchema,
 } from "./tools/search-podcasts.js";
+import {
+  listChannels,
+  ListChannelsInput,
+  listChannelsJsonSchema,
+} from "./tools/list-channels.js";
 
 
 export interface ServerDeps {
@@ -40,6 +45,15 @@ export function createServer(deps: ServerDeps): Server {
           "Za upite o specifičnim osobama/terminima koristi `lexical_terms` " +
           "argument za hybrid retrieval (semantic + token filter).",
         inputSchema: searchPodcastsJsonSchema,
+      },
+      {
+        name: "list_channels",
+        description:
+          "Vrati listu svih dostupnih kanala u korpusu sa statistikama (broj " +
+          "epizoda, broj chunkova, prvi/zadnji upload). Koristi za pregled " +
+          "korpusa i za biranje validnog `channel` slug-a u search_podcasts " +
+          "filteru.",
+        inputSchema: listChannelsJsonSchema,
       },
     ],
   }));
@@ -70,6 +84,32 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `search_podcasts failed: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "list_channels") {
+      const parsed = ListChannelsInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const results = await listChannels(parsed.data, { ch: deps.ch });
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(results, null, 2) },
+          ],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `list_channels failed: ${msg}` }],
         };
       }
     }
