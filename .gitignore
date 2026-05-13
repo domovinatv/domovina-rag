@@ -46,5 +46,12 @@ out/
 logs/
 .ingest-logs/
 
+# CH backup dumps (Faza 3 cloud deploy)
+snapshots/
+
 # Coolify managed files (if syncing)
 .coolify/
+
+# Tool caches (local-only)
+.claude/
+.wrangler/
