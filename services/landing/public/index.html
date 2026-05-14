@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<title>DOMOVINA.ai — Hrvatski podcast korpus za AI agente</title>
+<meta name="description" content="Otvorena platforma za semantičko pretraživanje hrvatskih podcasta. Pristup preko MCP poslužitelja iz Claude.ai i drugih AI alata." />
+<link rel="canonical" href="https://domovina.link/" />
+
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="hr_HR" />
+<meta property="og:site_name" content="DOMOVINA.ai" />
+<meta property="og:title" content="DOMOVINA.ai — Hrvatski podcast korpus za AI agente" />
+<meta property="og:description" content="Otvorena platforma za semantičko pretraživanje hrvatskih podcasta. Pristup preko MCP poslužitelja iz Claude.ai i drugih AI alata." />
+<meta property="og:url" content="https://domovina.link/" />
+<meta property="og:image" content="https://domovina.link/icon-512.png" />
+<meta property="og:image:alt" content="DOMOVINA.ai" />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="DOMOVINA.ai — Hrvatski podcast korpus za AI agente" />
+<meta name="twitter:description" content="Otvorena platforma za semantičko pretraživanje hrvatskih podcasta. Pristup preko MCP poslužitelja iz Claude.ai i drugih AI alata." />
+<meta name="twitter:image" content="https://domovina.link/icon-512.png" />
+
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="DOMOVINA.ai" />
+<link rel="icon" type="image/svg+xml" href="/icon.svg" />
+<link rel="icon" type="image/x-icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#002F6C" />
+
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<div class="tricolor" aria-hidden="true">
+  <span class="red"></span><span class="white"></span><span class="navy"></span>
+</div>
+
+<header>
+  <div class="brand">
+    <a href="/">
+      <svg viewBox="0 0 512 512" width="36" height="36" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="hdrFlag" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#FF0000"/><stop offset="33.3%" stop-color="#FF0000"/>
+            <stop offset="33.3%" stop-color="#FFFFFF"/><stop offset="66.6%" stop-color="#FFFFFF"/>
+            <stop offset="66.6%" stop-color="#002F6C"/><stop offset="100%" stop-color="#002F6C"/>
+          </linearGradient>
+        </defs>
+        <rect width="512" height="512" rx="32" fill="white"/>
+        <path d="M72 64H248C354.071 64 440 149.929 440 256C440 362.071 354.071 448 248 448H72V64Z" fill="url(#hdrFlag)"/>
+        <path d="M168 160H248C301.019 160 344 202.981 344 256C344 309.019 301.019 352 248 352H168V160Z" fill="white"/>
+        <g stroke="#002F6C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="205" y1="205" x2="295" y2="225"/><line x1="295" y1="225" x2="285" y2="285"/>
+          <line x1="285" y1="285" x2="205" y2="307"/><line x1="205" y1="307" x2="205" y2="205"/>
+          <line x1="205" y1="205" x2="245" y2="256"/><line x1="295" y1="225" x2="245" y2="256"/>
+          <line x1="285" y1="285" x2="245" y2="256"/><line x1="205" y1="307" x2="245" y2="256"/>
+        </g>
+        <g fill="#002F6C">
+          <circle cx="205" cy="205" r="10"/><circle cx="295" cy="225" r="10"/>
+          <circle cx="205" cy="307" r="10"/><circle cx="285" cy="285" r="10"/>
+          <circle cx="245" cy="256" r="14"/>
+        </g>
+      </svg>
+      <span class="word">DOMOVINA<span class="accent">.ai</span></span>
+    </a>
+  </div>
+  <nav class="docnav" aria-label="Glavna navigacija">
+    <a href="https://mcp.domovina.link">MCP poslužitelj</a>
+    <a href="https://github.com/domovinatv/domovina-rag">GitHub</a>
+  </nav>
+</header>
+
+<main>
+
+  <div class="hero">
+    <h1>Hrvatski podcast korpus za AI agente</h1>
+    <p class="lede">
+      Otvorena platforma za semantičko pretraživanje transkripata hrvatskih
+      podcasta. Pristupa se preko MCP poslužitelja iz Claude.ai, Claude Desktopa
+      i drugih AI alata koji podržavaju Model Context Protocol.
+    </p>
+    <span class="status">na mreži</span>
+  </div>
+
+  <section>
+    <h2>Što je DOMOVINA.ai?</h2>
+    <p>
+      DOMOVINA.ai prikuplja, transkribira i vektorizira hrvatski govoreni sadržaj
+      — trenutno katoličke i političke podcaste — te ga čini dostupnim AI alatima
+      kao kontekst za odgovaranje. Cilj je da pitanja o hrvatskim temama dobiju
+      odgovore utemeljene na hrvatskim izvorima, a ne na engleskim sažetcima.
+    </p>
+    <p>
+      Korpus se gradi otvoreno: kod, sheme baze i ETL pipeline su javni pod
+      <a href="https://github.com/domovinatv/domovina-rag/blob/main/LICENSE">AGPL-3.0</a>
+      licencom u repozitoriju
+      <a href="https://github.com/domovinatv/domovina-rag">domovinatv/domovina-rag</a>.
+    </p>
+  </section>
+
+  <section>
+    <h2>Pristup preko MCP-a</h2>
+    <p>
+      Glavna ulazna točka je MCP poslužitelj na
+      <a href="https://mcp.domovina.link"><code>mcp.domovina.link</code></a>.
+      U Claude.ai sučelju otvorite <strong>Profil → Custom Integrations</strong>,
+      dodajte novi konektor i upišite URL — autentifikacija se obavlja automatski
+      preko OAuth-a, bez ručnog API ključa.
+    </p>
+    <p>
+      <a href="https://mcp.domovina.link" class="cta">Otvori MCP poslužitelj →</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>Kako je napravljeno</h2>
+    <p>
+      Transkripcija: <a href="https://github.com/NVIDIA/NeMo">NVIDIA Canary</a> ASR
+      model + <a href="https://github.com/pyannote/pyannote-audio">pyannote</a>
+      dijarizacija. Vektorizacija: <a href="https://huggingface.co/BAAI/bge-m3">bge-m3</a>
+      (1024 dimenzije, multilingual). Spremnik: ClickHouse s HNSW indeksom +
+      PostgreSQL za metapodatke. Pipeline za prikupljanje je u sestrinskom repozitoriju
+      <a href="https://github.com/domovinatv/fetch.domovina.tv">fetch.domovina.tv</a>.
+    </p>
+  </section>
+
+  <section>
+    <h2>Dostupnost i licenca</h2>
+    <p>
+      Servis je javno dostupan kao MVP — bez registracije, bez plaćanja.
+      Ograničenja korištenja po klijentu opisana su na stranici
+      <a href="https://mcp.domovina.link/pricing">Ograničenja zahtjeva</a>.
+      Cijeli kod platforme je otvoren pod AGPL-3.0 licencom.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  Dio platforme <a href="https://domovina.ai">DOMOVINA.ai</a>
+  &middot; <a href="https://github.com/domovinatv/domovina-rag">GitHub</a>
+  &middot; TLS preko Cloudflarea
+</footer>
+
+<div class="tricolor" aria-hidden="true">
+  <span class="red"></span><span class="white"></span><span class="navy"></span>
+</div>
+
+</body>
+</html>
