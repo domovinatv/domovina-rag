@@ -86,10 +86,14 @@ U Application → **Environment Variables**:
 MCP_TRANSPORT=http
 PORT=3000
 
-# Database connections (preko share-ane internal mreže prema compose stack-u)
-POSTGRES_URL=postgres://<user>:<password>@postgres:5432/<db>
-CLICKHOUSE_URL=http://<user>:<password>@clickhouse:8123/<db>
-EMBEDDER_URL=http://embedder:8000
+# Database connections — koriste `domovina-*` aliase iz `coolify` external mreže.
+# Compose stack mora biti redeploy-an s ažuriranim docker-compose.yml koji
+# attacha postgres/clickhouse/embedder na `coolify` mrežu. Bez toga MCP
+# Application (koji je auto-attached na `coolify`) ne može ih resolvati i
+# umjesto toga hita Coolify-jev vlastiti `coolify-db` → auth fail.
+POSTGRES_URL=postgres://<user>:<password>@domovina-postgres:5432/<db>
+CLICKHOUSE_URL=http://<user>:<password>@domovina-clickhouse:8123/<db>
+EMBEDDER_URL=http://domovina-embedder:8000
 
 # Public base URL — OAuth issuer + icons[] srcovi se izvode odavde
 MCP_PUBLIC_BASE_URL=https://mcp.domovina.link

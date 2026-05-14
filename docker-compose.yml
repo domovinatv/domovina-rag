@@ -23,7 +23,13 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks: [internal]
+    # `coolify` (external) mreža + alias `domovina-postgres` omogućuje da
+    # MCP Coolify Application (koji je auto-attached na `coolify` net) resolva
+    # našu pgvector instancu (a ne Coolify-jev vlastiti `coolify-db`).
+    networks:
+      internal:
+      coolify:
+        aliases: [domovina-postgres]
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
@@ -50,7 +56,10 @@ services:
       - ch_data:/var/lib/clickhouse
       - ./infra/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       # - ./infra/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
-    networks: [internal]
+    networks:
+      internal:
+      coolify:
+        aliases: [domovina-clickhouse]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
@@ -72,7 +81,11 @@ services:
     # `web` je potreban za prvi run jer sentence-transformers povlači
     # bge-m3 weights s huggingface.co. Nakon prvog cache hita (hf_cache
     # volume) ostali pull-ovi su no-op pa internet nije strogo nužan.
-    networks: [internal, web]
+    networks:
+      internal:
+      web:
+      coolify:
+        aliases: [domovina-embedder]
     restart: unless-stopped
     # NB: bez profile-a — auto-startuje s `docker compose up`. Za minimal dev
     # (samo DB-ovi) koristi `docker compose up postgres clickhouse` (eksplicitno
@@ -123,3 +136,10 @@ networks:
     internal: true
   web:
     driver: bridge
+  # `coolify` je global Coolify-managed mreža — koristimo je da naši DB-ovi i
+  # embedder budu reachable iz Coolify Application-a (MCP) preko `domovina-*`
+  # aliasa. `external: true` znači da je Coolify već kreirao ovu mrežu;
+  # compose ju samo attacha, ne pokušava kreirati. Vidi:
+  # docs/coolify-mcp-application.md
+  coolify:
+    external: true
