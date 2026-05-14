@@ -1,0 +1,37 @@
+# Lokalni dev override — dodaje MCP servis natrag u stack za one-command full
+# local development. Produkcijski MCP se NE deploya odavde — koristi Coolify
+# Application resurs (vidi `docs/coolify-mcp-application.md`).
+#
+# Pokretanje:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Alternativa bez Docker-a (host-only dev, brži iter):
+#   cd services/mcp && npm run dev   # stdio transport, Claude Desktop
+
+services:
+  mcp:
+    build: ./services/mcp
+    depends_on:
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    environment:
+      MCP_TRANSPORT: http
+      POSTGRES_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CLICKHOUSE_URL: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@clickhouse:8123/${CLICKHOUSE_DB}
+      EMBEDDER_URL: ${EMBEDDER_URL:-http://embedder:8000}
+      MCP_AUTH_MODE: ${MCP_AUTH_MODE}
+      MCP_API_KEY: ${MCP_API_KEY}
+      # Lokalno mora biti http://localhost:3000 (ili ngrok URL za eksterni test).
+      # Produkcijski deploy preko Coolify Application postavlja ovo na
+      # https://mcp.domovina.ai ili https://mcp.domovina.link.
+      MCP_PUBLIC_BASE_URL: ${MCP_PUBLIC_BASE_URL:-http://localhost:3000}
+    ports:
+      - "${MCP_PORT:-3000}:3000"
+    networks: [internal, web]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s

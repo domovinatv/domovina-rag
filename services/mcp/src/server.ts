@@ -32,28 +32,20 @@ export function createServer(deps: ServerDeps): Server {
   // `icons` + `title` + `websiteUrl` su standardna polja Implementation-a iz MCP
   // schema 2025-11-25 — claude.ai i druge UI klijente čitaju ih iz initialize
   // response-a i prikazuju brand logo (umjesto default globe ikone).
+  //
+  // Base URL se izvodi iz `MCP_PUBLIC_BASE_URL` (npr. https://mcp.domovina.ai
+  // ili https://mcp.domovina.link) — isti kod servira oba deploy targeta.
+  const baseUrl = deps.config.publicBaseUrl.replace(/\/$/, "");
   const server = new Server(
     {
       name: deps.config.serviceName,
       version: deps.config.serviceVersion,
       title: "DOMOVINA.ai Podcast MCP",
-      websiteUrl: "https://mcp.domovina.ai/",
+      websiteUrl: `${baseUrl}/`,
       icons: [
-        {
-          src: "https://mcp.domovina.ai/icon.svg",
-          mimeType: "image/svg+xml",
-          sizes: ["any"],
-        },
-        {
-          src: "https://mcp.domovina.ai/icon-512.png",
-          mimeType: "image/png",
-          sizes: ["512x512"],
-        },
-        {
-          src: "https://mcp.domovina.ai/icon-192.png",
-          mimeType: "image/png",
-          sizes: ["192x192"],
-        },
+        { src: `${baseUrl}/icon.svg`, mimeType: "image/svg+xml", sizes: ["any"] },
+        { src: `${baseUrl}/icon-512.png`, mimeType: "image/png", sizes: ["512x512"] },
+        { src: `${baseUrl}/icon-192.png`, mimeType: "image/png", sizes: ["192x192"] },
       ],
     },
     { capabilities: { tools: {} } },

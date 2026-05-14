@@ -104,39 +104,14 @@ services:
     # One-shot job — pokreće se preko `docker compose run --rm etl ingest --input /data`.
     profiles: ["etl"]
 
-  mcp:
-    build: ./services/mcp
-    # NB: embedder NIJE u depends_on — vidi komentar na `etl` servisu.
-    depends_on:
-      postgres: { condition: service_healthy }
-      clickhouse: { condition: service_healthy }
-    environment:
-      MCP_TRANSPORT: http
-      POSTGRES_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      CLICKHOUSE_URL: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@clickhouse:8123/${CLICKHOUSE_DB}
-      EMBEDDER_URL: ${EMBEDDER_URL:-http://embedder:8000}
-      MCP_AUTH_MODE: ${MCP_AUTH_MODE}
-      MCP_API_KEY: ${MCP_API_KEY}
-      # Public URL — koristi se kao OAuth issuer u metadata-i. Za lokalni dev
-      # može biti ngrok URL (npr. https://uniformly-credible-opossum.ngrok-free.app),
-      # za produkciju cloud hostname (https://mcp.domovina.ai).
-      MCP_PUBLIC_BASE_URL: ${MCP_PUBLIC_BASE_URL:-http://localhost:3000}
-    ports:
-      - "${MCP_PORT:-3000}:3000"
-    networks: [internal, web]
-    restart: unless-stopped
-    # Healthcheck — eksplicitno u compose (uz onaj iz Dockerfile-a) da ga Coolify
-    # sigurno pokupi i prikaže status. Bez ovog Coolify ne zna da MCP container
-    # nije spreman dok mu Express ne podigne :3000, što utječe i na deployment
-    # signal i na compose `depends_on: service_healthy` lančane. start_period
-    # daje serveru vremena za PG connection + OAuth seed (typično ~3-5s).
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 15s
-    # Bez profile-a — Coolify auto-startuje. Vidi komentar na `embedder` servisu.
+  # ───────────────────────────────────────────────────────────────────
+  # MCP servis više NIJE u glavnom compose-u — deploya se kao zaseban
+  # Coolify **Application** resurs (rolling deploy, zero-downtime).
+  # Vidi `docs/coolify-mcp-application.md` za setup.
+  #
+  # Za lokalni docker dev (full stack u jednom compose-u) koristi:
+  #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+  # ───────────────────────────────────────────────────────────────────
 
 volumes:
   pg_data:
