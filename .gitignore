@@ -55,3 +55,4 @@ snapshots/
 # Tool caches (local-only)
 .claude/
 .wrangler/
+.firecrawl/
