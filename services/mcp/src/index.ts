@@ -74,8 +74,29 @@ async function main() {
   // Static public assets (favicon, ikone, manifest, dokumentacijske HTML stranice
   // /tools i /pricing) — public, bez auth-a. `extensions: ["html"]` znači da se
   // /tools resolva u public/tools.html bez sufiksa u URL-u (Magisterium-style).
+  //
+  // Ikonama + manifestu šaljemo `Access-Control-Allow-Origin: *` da claude.ai
+  // (cross-origin) može povući brand logo u Connectors UI — bez CORS-a Claude
+  // pada na default globe ikonu. Kratki max-age dok ne potvrdimo da radi.
   const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
-  app.use(express.static(publicDir, { index: false, maxAge: "1h", extensions: ["html"] }));
+  app.use(
+    express.static(publicDir, {
+      index: false,
+      maxAge: "1h",
+      extensions: ["html"],
+      setHeaders: (res, filePath) => {
+        const name = path.basename(filePath).toLowerCase();
+        const isIcon =
+          name === "favicon.ico" ||
+          name === "manifest.json" ||
+          /^(icon|apple-touch-icon)[-.]/.test(name);
+        if (isIcon) {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Cache-Control", "public, max-age=300");
+        }
+      },
+    }),
+  );
 
   app.use(express.json({ limit: "1mb" }));
 
