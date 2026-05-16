@@ -266,14 +266,29 @@ export async function getEpisode(
   // Duration = max end_ts across chunks (summary chunks s start_ts=0 ne kvare ovo).
   const durationSec = rows.reduce((max, r) => Math.max(max, r.end_ts), 0);
 
-  // ─── Chapters (outline-strategy chunks) ───────────────────────────────
+  // ─── Chapters (topic/outline chunks s validnim timestamp-om) ──────────
+  // Producer u produkciji emit-a `topic_transcript` chunkove (svaki = jedna
+  // tema u epizodi), ne uvijek `outline`. Oba služe kao chapter marker.
+  // Summary chunkovi (start=end=0) NISU chapters — to su AI-generirani
+  // article summary-ji bez vremenske pozicije.
+  const isChapterStrategy = (s: string): boolean =>
+    s === "outline" || s.startsWith("topic");
+  const hasValidTimestamp = (r: ChunkRow): boolean =>
+    !(r.start_ts === 0 && r.end_ts === 0);
   const chapters: ChapterInfo[] = rows
-    .filter((r) => r.chunk_strategy === "outline")
+    .filter((r) => isChapterStrategy(r.chunk_strategy) && hasValidTimestamp(r))
     .map((r) => {
       const meta = parseChunkMetadata(r.metadata);
+      // Theme fallback: ako metadata nema outline_theme, parse "Tema: <X>"
+      // prefix iz text-a (standardni format topic_transcript chunkova).
+      let theme = meta.outlineTheme;
+      if (!theme) {
+        const match = /^Tema:\s*([^\n]+)/.exec(r.text);
+        theme = match?.[1]?.trim() ?? null;
+      }
       return {
         outline_iteration: meta.outlineIteration,
-        theme: meta.outlineTheme,
+        theme,
         start_ts: r.start_ts,
         end_ts: r.end_ts,
         summary_snippet: meta.summarySnippet ?? (r.text_summary || null),
