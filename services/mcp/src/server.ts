@@ -30,6 +30,11 @@ import {
   ListEpisodesInput,
   listEpisodesJsonSchema,
 } from "./tools/list-episodes.js";
+import {
+  getServerInfo,
+  ServerInfoInput,
+  serverInfoJsonSchema,
+} from "./tools/server-info.js";
 
 
 export interface ServerDeps {
@@ -37,6 +42,18 @@ export interface ServerDeps {
   ch: ClickHouseClient;
   embedder: EmbedderClient;
 }
+
+
+// Tool registry — source of truth za listu imena. Mora se sinkronizirati s
+// `tools: [...]` listom u ListToolsRequestSchema handleru i s case-ovima u
+// CallToolRequestSchema. server_info tool ovo vraća kroz introspection.
+const TOOL_NAMES = [
+  "search_podcasts",
+  "list_channels",
+  "list_episodes",
+  "get_episode",
+  "server_info",
+] as const;
 
 
 export function createServer(deps: ServerDeps): Server {
@@ -103,6 +120,16 @@ export function createServer(deps: ServerDeps): Server {
           "uz upit da se dohvati po dijelovima. Koristi za doktrinarnu/temeljnu " +
           "analizu cijele epizode kad search_podcasts vraća premali coverage.",
         inputSchema: getEpisodeJsonSchema,
+      },
+      {
+        name: "server_info",
+        description:
+          "Vrati metapodatke o MCP servisu i stanju korpusa: verziju, build info, " +
+          "statistiku dataset-a (broj kanala/epizoda/chunkova, datum najnovije i " +
+          "najstarije epizode), popis dostupnih tool-ova. Koristi za debug, za " +
+          "provjeru svježine podataka i za otkrivanje koje verzije/feature-i su " +
+          "trenutno dostupni.",
+        inputSchema: serverInfoJsonSchema,
       },
     ],
   }));
@@ -192,6 +219,36 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `STORAGE_ERROR: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "server_info") {
+      const parsed = ServerInfoInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const info = await getServerInfo(parsed.data, {
+          ch: deps.ch,
+          serviceName: deps.config.serviceName,
+          serviceVersion: deps.config.serviceVersion,
+          publicBaseUrl: deps.config.publicBaseUrl,
+          toolNames: [...TOOL_NAMES],
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(info, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `server_info failed: ${msg}` }],
         };
       }
     }
