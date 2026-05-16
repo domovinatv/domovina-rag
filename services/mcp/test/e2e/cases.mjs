@@ -477,4 +477,149 @@ export default [
       "limit max=50 → validation error. LLM klijent treba refraziraii s manjim " +
       "limitom ili paginirati.",
   },
+
+  // ════════════════════════════════════════════════════════════════
+  // get_episode test cases
+  // ════════════════════════════════════════════════════════════════
+  //
+  // Payload je objekt (NE array kao search_podcasts), pa koristi
+  // `episode_*` asserter helpere koji rade po object shape-u.
+
+  {
+    id: "get-episode-happy-path",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Daj mi cijelu epizodu Fra Nikole Jurišića (klinička smrt).",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: KNOWN_YT_ID },
+    },
+    must_have: {
+      episode_metadata_youtube_id: KNOWN_YT_ID,
+      episode_metadata_channel: KNOWN_CHANNEL,
+      episode_metadata_has_title: true,
+      episode_chunk_count_min: 1,
+      episode_speakers_min: 1,
+      episode_duration_sec_min: 60,
+    },
+    expected_answer:
+      "Cjeloviti pregled epizode: naslov, govornici, trajanje + chapters + " +
+      "transkript po segmentima (ako stane u soft limit). LLM može sustavno " +
+      "ekstraktirati tvrdnje iz cijele epizode.",
+  },
+
+  {
+    id: "get-episode-metadata-only",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Tko gostuje u epizodi (samo pregled, bez transkripta)?",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: KNOWN_YT_ID, include_transcript: false },
+    },
+    must_have: {
+      episode_metadata_youtube_id: KNOWN_YT_ID,
+      episode_transcript_null: true,
+      episode_truncation_reason_includes: "include_transcript=false",
+      episode_stats_returned_chunks_eq: 0,
+    },
+    expected_answer:
+      "Bez transkripta — LLM prikazuje meta + chapters. Korisno za brzi pregled " +
+      "ili kad korisnik samo želi popis gostiju.",
+  },
+
+  {
+    id: "get-episode-view-range",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Daj mi prvih 10 minuta epizode.",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: KNOWN_YT_ID, view_range: [0, 600] },
+    },
+    must_have: {
+      episode_metadata_youtube_id: KNOWN_YT_ID,
+      episode_transcript_chunks_min: 1,
+      episode_all_transcript_chunks_overlap_range: [0, 600],
+      episode_stats_time_range_eq: [0, 600],
+    },
+    expected_answer:
+      "Samo chunkovi koji se preklapaju s [0, 600] — fokusirani pogled na " +
+      "uvod epizode. Bypassira soft limit.",
+  },
+
+  {
+    id: "get-episode-not-found",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Daj mi epizodu s nepostojećim ID-om.",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: "aaaaaaaaaaa" },
+    },
+    must_have: {
+      tool_call_must_error: true,
+      error_contains_one_of: ["EPISODE_NOT_FOUND"],
+    },
+    expected_answer:
+      "Domain error EPISODE_NOT_FOUND (NE generic 500). LLM treba poručiti " +
+      "korisniku da provjeri youtube_id.",
+  },
+
+  {
+    id: "get-episode-invalid-id",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Daj mi epizodu s nevažećim ID-om.",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: "invalid" },
+    },
+    must_have: {
+      tool_call_must_error: true,
+      error_contains_one_of: ["VALIDATION_ERROR", "11-znakovni"],
+    },
+    expected_answer:
+      "VALIDATION_ERROR — youtube_id regex (^[A-Za-z0-9_-]{11}$) ne mečka. " +
+      "LLM može zatražiti korisnika da provjeri URL.",
+  },
+
+  {
+    id: "get-episode-inverted-range",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Daj mi epizodu s pogrešnim view_range-om (start > end).",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: KNOWN_YT_ID, view_range: [600, 0] },
+    },
+    must_have: {
+      tool_call_must_error: true,
+      error_contains_one_of: ["VALIDATION_ERROR", "start mora biti < end"],
+    },
+    expected_answer:
+      "VALIDATION_ERROR — view_range refine fails (start mora biti < end).",
+  },
+
+  {
+    id: "get-episode-soft-limit-truncates",
+    category: "episode",
+    // Duga epizoda EnNn5o1RAfs (Matija Ricov, ~4250s) — postoji tek u multi_episode
+    // datasetu. current_smoke = 1 ep nije dovoljna.
+    requires: "multi_episode",
+    user_prompt: "Daj mi cijelu Matijinu Ricovu epizodu (4250+ sec).",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: "EnNn5o1RAfs" },
+    },
+    must_have: {
+      episode_metadata_youtube_id: "EnNn5o1RAfs",
+      episode_transcript_null: true,
+      episode_truncated_eq: true,
+      episode_truncation_reason_includes: "soft limit",
+    },
+    expected_answer:
+      "Velika epizoda → transcript null, truncated=true s actionable porukom " +
+      "koja upućuje na view_range. LLM treba pozvati opet po dijelovima.",
+  },
 ];

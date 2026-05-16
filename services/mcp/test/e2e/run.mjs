@@ -110,6 +110,82 @@ const ASSERTIONS = {
       ? null
       : `only ${distinct.size} distinct youtube_ids, expected ≥${n}`;
   },
+
+  // ─── get_episode asserteri (payload je objekt, ne array) ─────────────
+
+  episode_metadata_youtube_id: (p, id) =>
+    p.metadata?.youtube_id === id
+      ? null
+      : `metadata.youtube_id='${p.metadata?.youtube_id}', expected '${id}'`,
+
+  episode_metadata_channel: (p, ch) =>
+    p.metadata?.channel === ch
+      ? null
+      : `metadata.channel='${p.metadata?.channel}', expected '${ch}'`,
+
+  episode_metadata_has_title: (p, want) => {
+    const has = typeof p.metadata?.title === "string" && p.metadata.title.length > 0;
+    return has === want
+      ? null
+      : `metadata.title presence=${has}, expected=${want}`;
+  },
+
+  episode_chunk_count_min: (p, n) =>
+    (p.metadata?.chunk_count ?? 0) >= n
+      ? null
+      : `chunk_count=${p.metadata?.chunk_count}, expected ≥${n}`,
+
+  episode_speakers_min: (p, n) =>
+    Array.isArray(p.metadata?.speakers) && p.metadata.speakers.length >= n
+      ? null
+      : `speakers.length=${p.metadata?.speakers?.length}, expected ≥${n}`,
+
+  episode_duration_sec_min: (p, n) =>
+    (p.metadata?.duration_sec ?? 0) >= n
+      ? null
+      : `duration_sec=${p.metadata?.duration_sec}, expected ≥${n}`,
+
+  episode_transcript_null: (p, want) => {
+    const isNull = p.transcript === null;
+    return isNull === want
+      ? null
+      : `transcript ${isNull ? "is" : "is not"} null, expected ${want ? "null" : "non-null"}`;
+  },
+
+  episode_transcript_chunks_min: (p, n) =>
+    Array.isArray(p.transcript) && p.transcript.length >= n
+      ? null
+      : `transcript.length=${p.transcript?.length}, expected ≥${n}`,
+
+  episode_all_transcript_chunks_overlap_range: (p, [lo, hi]) => {
+    if (!Array.isArray(p.transcript)) return `transcript is not an array`;
+    const outside = p.transcript.filter((c) => c.end_ts < lo || c.start_ts > hi);
+    return outside.length === 0
+      ? null
+      : `${outside.length} chunks fall outside [${lo}, ${hi}]`;
+  },
+
+  episode_truncated_eq: (p, want) =>
+    p.truncated === want
+      ? null
+      : `truncated=${p.truncated}, expected ${want}`,
+
+  episode_truncation_reason_includes: (p, substr) =>
+    typeof p.truncation_reason === "string" && p.truncation_reason.includes(substr)
+      ? null
+      : `truncation_reason='${p.truncation_reason}' doesn't include '${substr}'`,
+
+  episode_stats_returned_chunks_eq: (p, n) =>
+    p.stats?.returned_chunks === n
+      ? null
+      : `stats.returned_chunks=${p.stats?.returned_chunks}, expected ${n}`,
+
+  episode_stats_time_range_eq: (p, [lo, hi]) =>
+    Array.isArray(p.stats?.time_range) &&
+    p.stats.time_range[0] === lo &&
+    p.stats.time_range[1] === hi
+      ? null
+      : `stats.time_range=${JSON.stringify(p.stats?.time_range)}, expected [${lo}, ${hi}]`,
 };
 
 
@@ -216,7 +292,12 @@ for (const c of selected) {
   const errors = runAssertions(rows, c.must_have || {});
   if (errors.length === 0) {
     passed++;
-    console.log(`✓ ${label}  (${rows.length} rezultata)`);
+    const summary = Array.isArray(rows)
+      ? `${rows.length} rezultata`
+      : rows?.metadata?.youtube_id
+      ? `episode=${rows.metadata.youtube_id}`
+      : "ok";
+    console.log(`✓ ${label}  (${summary})`);
   } else {
     failed++;
     failures.push({ id: c.id, errors });
