@@ -72,8 +72,8 @@
   <div class="hero">
     <h1>Podržani alati</h1>
     <p class="lede">
-      Trenutno Domovina MCP poslužitelj nudi sljedeći alat za pretraživanje
-      korpusa. Dodatni alati u izradi navedeni su pod „Planirano".
+      Trenutno Domovina MCP poslužitelj nudi sljedeće alate za pretraživanje
+      i pregled korpusa. Dodatni alati u izradi navedeni su pod „Planirano".
     </p>
   </div>
 
@@ -102,6 +102,25 @@
             </div>
           </td>
         </tr>
+        <tr>
+          <td><code>get_episode</code></td>
+          <td>
+            Dohvati metapodatke, popis poglavlja i (po želji) cijeli transkript
+            jedne epizode prema YouTube ID-u. Vraća naslov, govornike, trajanje,
+            popis poglavlja (outline chunkovi) i transkript po segmentima s
+            timestamp-ima. Za duge epizode (preko ~80 000 znakova) bez parametra
+            <code>view_range</code>, transkript je izostavljen uz uputu da se
+            dohvati po dijelovima. Koristi za doktrinarnu i temeljnu analizu
+            cijele epizode kada <code>search_podcasts</code> daje preslab obuhvat.
+          </td>
+          <td>
+            <div class="param-list">
+              <strong>youtube_id</strong> (string, obavezan): 11-znakovni YouTube video ID (npr. <code>5J9GQ0sFe3M</code>)<br/>
+              <strong>include_transcript</strong> (bool, neobavezan): zadano <code>true</code>; <code>false</code> vraća samo meta + poglavlja<br/>
+              <strong>view_range</strong> (popis dvaju brojeva, neobavezan): <code>[start_sec, end_sec]</code> — filtriraj chunkove na vremenski raspon (npr. <code>[0, 600]</code> = prvih 10 min). Bypassira soft limit.
+            </div>
+          </td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -117,11 +136,6 @@
         <tr><th>Alat</th><th>Opis</th><th>Status</th></tr>
       </thead>
       <tbody>
-        <tr>
-          <td><code>get_episode</code></td>
-          <td>Dohvati metapodatke i sažetak pojedine epizode prema <code>youtube_id</code>-u. Vraća naslov, datum objave, govornike, popis poglavlja i link na cijeli transkript.</td>
-          <td>planirano (Faza 2)</td>
-        </tr>
         <tr>
           <td><code>get_speaker</code></td>
           <td>Dohvati profil govornika prema imenu — popis pojavljivanja po epizodama, glavne teme, link na entity resolution. Zahtijeva završetak ensemble speaker pipeline-a (TitaNet + pyannote-wespeaker34).</td>
