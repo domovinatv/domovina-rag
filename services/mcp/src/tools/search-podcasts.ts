@@ -25,6 +25,23 @@ export const SearchPodcastsInput = z.object({
         "Case-insensitive partial match (npr. 'Miletić' matcha 'Marin Miletić'). " +
         "Koristi za 'što je X rekao o Y' upite kako bi izbjegao chunkove gdje se osoba samo spominje.",
     ),
+  min_upload_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Format: YYYY-MM-DD")
+    .optional()
+    .describe("Filter: samo chunkovi iz epizoda objavljenih >= ovom datumu (npr. '2025-01-01')."),
+  max_upload_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Format: YYYY-MM-DD")
+    .optional()
+    .describe("Filter: samo chunkovi iz epizoda objavljenih <= ovom datumu."),
+  include_summaries: z
+    .boolean()
+    .default(true)
+    .describe(
+      "Ako false, isključuje article_summary chunkove (start=end=0, bez govornika). " +
+        "Korisno kad treba direktan citat iz dijaloga, ne AI sažetak.",
+    ),
   limit: z.number().int().min(1).max(50).default(10).describe("Maks. broj rezultata"),
   lexical_terms: z
     .array(z.string().min(1).max(50))
@@ -69,6 +86,23 @@ export const searchPodcastsJsonSchema = {
       description:
         "Filter: samo chunkovi gdje X stvarno govori (NE spominjanje). " +
         "Case-insensitive partial match (npr. 'Miletić' → 'Marin Miletić').",
+    },
+    min_upload_date: {
+      type: "string",
+      pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+      description: "Filter: epizode objavljene >= YYYY-MM-DD.",
+    },
+    max_upload_date: {
+      type: "string",
+      pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+      description: "Filter: epizode objavljene <= YYYY-MM-DD.",
+    },
+    include_summaries: {
+      type: "boolean",
+      default: true,
+      description:
+        "Ako false, isključuje article_summary chunkove (bez govornika i timestamp-a). " +
+        "Koristi za direktne citate iz dijaloga.",
     },
     limit: { type: "integer", minimum: 1, maximum: 50, default: 10, description: "Maks. broj rezultata" },
     lexical_terms: {
@@ -122,6 +156,19 @@ export async function searchPodcasts(
       "positionCaseInsensitiveUTF8(speaker, {speaker:String}) > 0",
     );
     params.speaker = args.speaker;
+  }
+  if (args.min_upload_date) {
+    whereParts.push("upload_date >= {min_date:Date}");
+    params.min_date = args.min_upload_date;
+  }
+  if (args.max_upload_date) {
+    whereParts.push("upload_date <= {max_date:Date}");
+    params.max_date = args.max_upload_date;
+  }
+  if (!args.include_summaries) {
+    // article_summary chunkovi nemaju timestamp i govornika — kad user
+    // želi direktan citat, ovo isključi noise.
+    whereParts.push("chunk_strategy NOT LIKE '%summary%'");
   }
   if (args.lexical_terms && args.lexical_terms.length > 0) {
     // hasToken koristi tokenbf_v1 INDEX idx_text_tokens (vidi infra/clickhouse/init.sql).
