@@ -5,6 +5,9 @@
 //  2. CH SELECT ORDER BY cosineDistance(...) LIMIT N (USearch index ubrzava)
 //  3. format: deep link na domovina.ai frontend (`/v/{id}/t/{start_ts}`),
 //     snippet teksta, score
+//
+// Cache-bust marker: hotfix-3 za Coolify build cache (commit 3ae6963 SQL
+// changes nisu se reflektirali u cloud-u — sumnja na stale Docker layer).
 
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
