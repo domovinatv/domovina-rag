@@ -35,14 +35,14 @@ export const SearchPodcastsInput = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Format: YYYY-MM-DD")
     .optional()
     .describe("Filter: samo chunkovi iz epizoda objavljenih <= ovom datumu."),
-  include_summaries: z
+  include_summaries: z.coerce
     .boolean()
     .default(true)
     .describe(
       "Ako false, isključuje article_summary chunkove (start=end=0, bez govornika). " +
         "Korisno kad treba direktan citat iz dijaloga, ne AI sažetak.",
     ),
-  limit: z
+  limit: z.coerce
     .number()
     .int()
     .min(1)
@@ -175,11 +175,14 @@ export async function searchPodcasts(
     params.speaker = args.speaker;
   }
   if (args.min_upload_date) {
-    whereParts.push("upload_date >= {min_date:Date}");
+    // @clickhouse/client interpretira {param:Date} kao native Date type-mismatch
+    // s upload_date kolonom u CH ("no supertype for String, Date"). Workaround:
+    // šaljemo kao String i eksplicitno cast-amo toDate() u SQL-u.
+    whereParts.push("upload_date >= toDate({min_date:String})");
     params.min_date = args.min_upload_date;
   }
   if (args.max_upload_date) {
-    whereParts.push("upload_date <= {max_date:Date}");
+    whereParts.push("upload_date <= toDate({max_date:String})");
     params.max_date = args.max_upload_date;
   }
   if (!args.include_summaries) {

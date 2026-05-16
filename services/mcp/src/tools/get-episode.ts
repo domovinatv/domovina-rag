@@ -31,7 +31,7 @@ export const GetEpisodeInput = z
       .string()
       .regex(/^[A-Za-z0-9_-]{11}$/, "youtube_id mora biti 11-znakovni YouTube video ID")
       .describe("11-znakovni YouTube video ID (npr. '5J9GQ0sFe3M')"),
-    include_transcript: z
+    include_transcript: z.coerce
       .boolean()
       .default(true)
       .describe(
@@ -39,7 +39,7 @@ export const GetEpisodeInput = z
           "Korisno kad treba samo pregled epizode (govornici, trajanje, naslov).",
       ),
     view_range: z
-      .tuple([z.number().min(0), z.number().min(0)])
+      .tuple([z.coerce.number().min(0), z.coerce.number().min(0)])
       .optional()
       .refine((r) => !r || r[0] < r[1], {
         message: "view_range: start mora biti < end (npr. [0, 600])",
@@ -49,7 +49,7 @@ export const GetEpisodeInput = z
           "Koristi za fokusirani pregled dijela duge epizode (npr. [0, 600] = " +
           "prvih 10 minuta). Bypassira soft limit, ali ne i hard.",
       ),
-    chapter_index: z
+    chapter_index: z.coerce
       .number()
       .int()
       .positive()

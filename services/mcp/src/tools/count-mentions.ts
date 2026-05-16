@@ -26,7 +26,7 @@ export const CountMentionsInput = z.object({
       "Kriterij agregacije: channel (po kanalu), speaker (po govorniku), " +
         "month (po YYYY-MM mjesecu objave).",
     ),
-  relevance_threshold: z
+  relevance_threshold: z.coerce
     .number()
     .min(0)
     .max(1)
@@ -35,7 +35,7 @@ export const CountMentionsInput = z.object({
       "Cosine similarity prag (0-1, viši = stroži). Default 0.4 = relevantno. " +
         "Smanji za šira agregacija, povećaj za stroga match.",
     ),
-  limit: z
+  limit: z.coerce
     .number()
     .int()
     .min(1)
@@ -126,11 +126,11 @@ export async function countMentions(
     params.channel = args.channel;
   }
   if (args.min_upload_date) {
-    whereParts.push("upload_date >= {min_date:Date}");
+    whereParts.push("upload_date >= toDate({min_date:String})");
     params.min_date = args.min_upload_date;
   }
   if (args.max_upload_date) {
-    whereParts.push("upload_date <= {max_date:Date}");
+    whereParts.push("upload_date <= toDate({max_date:String})");
     params.max_date = args.max_upload_date;
   }
 

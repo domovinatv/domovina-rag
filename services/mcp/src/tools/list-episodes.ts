@@ -36,7 +36,7 @@ export const ListEpisodesInput = z.object({
     .enum(["upload_date_desc", "upload_date_asc", "chunks_desc", "duration_desc"])
     .default("upload_date_desc")
     .describe("Kriterij sortiranja (default: upload_date_desc = najnovije prvo)."),
-  limit: z
+  limit: z.coerce
     .number()
     .int()
     .min(1)
@@ -143,11 +143,12 @@ export async function listEpisodes(
     params.speaker = args.speaker;
   }
   if (args.min_upload_date) {
-    whereParts.push("upload_date >= {min_date:Date}");
+    // Date casting workaround — vidi search-podcasts.ts za detalje.
+    whereParts.push("upload_date >= toDate({min_date:String})");
     params.min_date = args.min_upload_date;
   }
   if (args.max_upload_date) {
-    whereParts.push("upload_date <= {max_date:Date}");
+    whereParts.push("upload_date <= toDate({max_date:String})");
     params.max_date = args.max_upload_date;
   }
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
