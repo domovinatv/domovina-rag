@@ -126,11 +126,12 @@ export async function countMentions(
     params.channel = args.channel;
   }
   if (args.min_upload_date) {
-    whereParts.push("upload_date >= toDate({min_date:String})");
+    // Lexicographic comparison workaround — vidi search-podcasts.ts za detalje.
+    whereParts.push("toString(upload_date) >= {min_date:String}");
     params.min_date = args.min_upload_date;
   }
   if (args.max_upload_date) {
-    whereParts.push("upload_date <= toDate({max_date:String})");
+    whereParts.push("toString(upload_date) <= {max_date:String}");
     params.max_date = args.max_upload_date;
   }
 

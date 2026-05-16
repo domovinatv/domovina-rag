@@ -183,14 +183,15 @@ export async function searchPodcasts(
     params.speaker = args.speaker;
   }
   if (args.min_upload_date) {
-    // @clickhouse/client interpretira {param:Date} kao native Date type-mismatch
-    // s upload_date kolonom u CH ("no supertype for String, Date"). Workaround:
-    // šaljemo kao String i eksplicitno cast-amo toDate() u SQL-u.
-    whereParts.push("upload_date >= toDate({min_date:String})");
+    // Robust workaround za @clickhouse/client param substitution issue:
+    // toDate(<param>) i {param:Date} oba dali "no supertype for String, Date".
+    // Lexicographic comparison na toString(upload_date) radi besprijekorno
+    // jer YYYY-MM-DD format je sortable identično kao Date.
+    whereParts.push("toString(upload_date) >= {min_date:String}");
     params.min_date = args.min_upload_date;
   }
   if (args.max_upload_date) {
-    whereParts.push("upload_date <= toDate({max_date:String})");
+    whereParts.push("toString(upload_date) <= {max_date:String}");
     params.max_date = args.max_upload_date;
   }
   if (!args.include_summaries) {
