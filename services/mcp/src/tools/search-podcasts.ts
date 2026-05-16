@@ -42,7 +42,17 @@ export const SearchPodcastsInput = z.object({
       "Ako false, isključuje article_summary chunkove (start=end=0, bez govornika). " +
         "Korisno kad treba direktan citat iz dijaloga, ne AI sažetak.",
     ),
-  limit: z.number().int().min(1).max(50).default(10).describe("Maks. broj rezultata"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(25)
+    .default(10)
+    .describe(
+      "Maks. broj rezultata (1-25, default 10). Cap je 25 jer veći broj " +
+        "rezultata često prelazi token budget LLM klijenta. Za bulk operacije " +
+        "koristi paginiranje preko više poziva.",
+    ),
   lexical_terms: z
     .array(z.string().min(1).max(50))
     .max(10)
@@ -104,7 +114,14 @@ export const searchPodcastsJsonSchema = {
         "Ako false, isključuje article_summary chunkove (bez govornika i timestamp-a). " +
         "Koristi za direktne citate iz dijaloga.",
     },
-    limit: { type: "integer", minimum: 1, maximum: 50, default: 10, description: "Maks. broj rezultata" },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: 25,
+      default: 10,
+      description:
+        "Maks. broj rezultata (1-25, default 10). Cap je 25 jer veći broj prelazi tipičan tool budget LLM-a.",
+    },
     lexical_terms: {
       type: "array",
       items: { type: "string", minLength: 1, maxLength: 50 },

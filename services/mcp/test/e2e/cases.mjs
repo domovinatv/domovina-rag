@@ -471,11 +471,12 @@ export default [
     },
     must_have: {
       tool_call_must_error: true,
-      error_contains_one_of: ["Invalid arguments", "max", "50"],
+      error_contains_one_of: ["Invalid arguments", "max", "25"],
     },
     expected_answer:
-      "limit max=50 → validation error. LLM klijent treba refraziraii s manjim " +
-      "limitom ili paginirati.",
+      "limit max=25 → validation error. LLM klijent treba refraziraii s manjim " +
+      "limitom ili paginirati. (Cap snižen s 50 na 25 u Sprint 3 jer veći " +
+      "broj prelazi tool budget LLM-a.)",
   },
 
   // ════════════════════════════════════════════════════════════════
