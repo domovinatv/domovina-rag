@@ -35,6 +35,11 @@ import {
   ServerInfoInput,
   serverInfoJsonSchema,
 } from "./tools/server-info.js";
+import {
+  countMentions,
+  CountMentionsInput,
+  countMentionsJsonSchema,
+} from "./tools/count-mentions.js";
 
 
 export interface ServerDeps {
@@ -52,6 +57,7 @@ const TOOL_NAMES = [
   "list_channels",
   "list_episodes",
   "get_episode",
+  "count_mentions",
   "server_info",
 ] as const;
 
@@ -120,6 +126,16 @@ export function createServer(deps: ServerDeps): Server {
           "uz upit da se dohvati po dijelovima. Koristi za doktrinarnu/temeljnu " +
           "analizu cijele epizode kad search_podcasts vraća premali coverage.",
         inputSchema: getEpisodeJsonSchema,
+      },
+      {
+        name: "count_mentions",
+        description:
+          "Agregat: vrati top N grupa (channel/speaker/month) po broju chunkova " +
+          "koji semantički matchaju upit. Vraća samo brojeve (mention_count, " +
+          "episode_count), ne sadržaj — drastično manji payload nego " +
+          "search_podcasts(limit=50). Use case: 'u kojem kanalu najviše Y', " +
+          "'tko najčešće spominje Z', 'u kojem mjesecu najviše rasprava o W'.",
+        inputSchema: countMentionsJsonSchema,
       },
       {
         name: "server_info",
@@ -219,6 +235,33 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `STORAGE_ERROR: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "count_mentions") {
+      const parsed = CountMentionsInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const results = await countMentions(parsed.data, {
+          ch: deps.ch,
+          embedder: deps.embedder,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `count_mentions failed: ${msg}` }],
         };
       }
     }
