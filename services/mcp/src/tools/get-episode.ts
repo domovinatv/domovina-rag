@@ -301,12 +301,20 @@ export async function getEpisode(
   // Overlap test: chunk je u rasponu ako se njegov [start, end] presijeca s
   // [view_start, view_end]. Strikni "fully inside" bi bio pre-restriktivan jer
   // outline chunkovi često pokrivaju cijelu epizodu.
+  //
+  // Untimestamped chunkovi (start=end=0, tipično `article_summary`) NE prolaze
+  // view_range filter — oni su episode-level summary bez vremenske pozicije,
+  // pa "spadaju u svaki view_range koji uključuje 0" čisto matematički, ali
+  // semantički ne — user koji traži [0, 600] ne želi summary cijele epizode.
   let filteredRows = rows;
   let timeRange: [number, number] | null = null;
   if (args.view_range) {
     const [viewStart, viewEnd] = args.view_range;
     filteredRows = rows.filter(
-      (r) => r.end_ts >= viewStart && r.start_ts <= viewEnd,
+      (r) =>
+        hasValidTimestamp(r) &&
+        r.end_ts >= viewStart &&
+        r.start_ts <= viewEnd,
     );
     timeRange = [viewStart, viewEnd];
   }
