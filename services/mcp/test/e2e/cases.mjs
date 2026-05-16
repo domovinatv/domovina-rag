@@ -501,6 +501,10 @@ export default [
       episode_chunk_count_min: 1,
       episode_speakers_min: 1,
       episode_duration_sec_min: 60,
+      // Fix od 2026-05-16: chapters se izvode iz topic* + outline strategija,
+      // ne samo `outline`. Smoke ep ima topic_transcript chunkove → chapters ≥ 1.
+      episode_chapters_min: 1,
+      episode_all_chapters_have_valid_timestamp: true,
     },
     expected_answer:
       "Cjeloviti pregled epizode: naslov, govornici, trajanje + chapters + " +
@@ -542,10 +546,15 @@ export default [
       episode_transcript_chunks_min: 1,
       episode_all_transcript_chunks_overlap_range: [0, 600],
       episode_stats_time_range_eq: [0, 600],
+      // Fix od 2026-05-16: untimestamped chunkovi (start=end=0, tipično
+      // article_summary) NE smiju pasti u view_range bucket — semantički
+      // nepripadaju time-slice upitu.
+      episode_no_untimestamped_chunks_in_transcript: true,
     },
     expected_answer:
       "Samo chunkovi koji se preklapaju s [0, 600] — fokusirani pogled na " +
-      "uvod epizode. Bypassira soft limit.",
+      "uvod epizode. Bypassira soft limit. Summary chunkovi bez timestamp-a " +
+      "su isključeni.",
   },
 
   {

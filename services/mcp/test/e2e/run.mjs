@@ -186,6 +186,29 @@ const ASSERTIONS = {
     p.stats.time_range[1] === hi
       ? null
       : `stats.time_range=${JSON.stringify(p.stats?.time_range)}, expected [${lo}, ${hi}]`,
+
+  episode_chapters_min: (p, n) =>
+    Array.isArray(p.chapters) && p.chapters.length >= n
+      ? null
+      : `chapters.length=${p.chapters?.length}, expected ≥${n}`,
+
+  episode_all_chapters_have_valid_timestamp: (p, want) => {
+    if (!Array.isArray(p.chapters)) return `chapters is not an array`;
+    const invalid = p.chapters.filter((c) => c.start_ts === 0 && c.end_ts === 0);
+    const allValid = invalid.length === 0;
+    return allValid === want
+      ? null
+      : `${invalid.length} chapters have start=end=0 (expected ${want ? "0" : "≥1"})`;
+  },
+
+  episode_no_untimestamped_chunks_in_transcript: (p, want) => {
+    if (!Array.isArray(p.transcript)) return `transcript is not an array`;
+    const zero = p.transcript.filter((c) => c.start_ts === 0 && c.end_ts === 0);
+    const none = zero.length === 0;
+    return none === want
+      ? null
+      : `${zero.length} transcript chunks have start=end=0 (expected ${want ? "0" : "≥1"})`;
+  },
 };
 
 
