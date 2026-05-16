@@ -23,7 +23,7 @@ Tijek:
 2. ClickHouse `cosineDistance` sort, `vector_similarity` HNSW index ubrzava
 3. Opcionalno `lexical_terms` filtriranje preko `hasToken` (Bloom filter)
 4. PG lookup za `episode_title` po `youtube_id`-evima
-5. Rezultati: `chunk_id`, `youtube_id`, `deep_link` (s `t=` na `start_ts`),
+5. Rezultati: `chunk_id`, `youtube_id`, `deep_link` (`https://domovina.ai/v/{id}/t/{start_ts}`),
    `channel`, `upload_date`, `episode_title`, `speakers`, `text`, `score`
 
 ```mermaid
@@ -63,7 +63,26 @@ sequenceDiagram
 ```
 Vraća samo chunkove koji semantički matchaju "razgovor o vjeri" **i** sadrže riječi "Isusom" i "molitvi" (case-insensitive, hasToken na text-u).
 
-**Tools planirani za Fazu 2+:** `get_episode`, `list_channels`, `list_speakers`, `get_related_episodes`, `analytics_top_speakers`.
+## Tool: `get_episode`
+
+Vraća metapodatke, popis poglavlja i (po želji) cijeli transkript jedne epizode prema YouTube ID-u. CH-only (bez PG joina) — naslov se parsa iz `metadata` JSON kolone, isti pattern kao `search_podcasts`.
+
+**Argumenti:**
+
+| Param | Tip | Validacija | Opis |
+|---|---|---|---|
+| `youtube_id` | string | regex `^[A-Za-z0-9_-]{11}$`, required | 11-znakovni YouTube video ID |
+| `include_transcript` | bool? | default `true` | `false` vraća samo meta + chapters |
+| `view_range` | `[number, number]?` | start < end | Filtriraj chunkove na `[start_sec, end_sec]`. Bypassira soft limit. |
+
+**Truncation (char-based):**
+- soft `80 000` — bez `view_range`-a vrati meta + chapters, `transcript=null`, `truncated=true`
+- hard `200 000` — uvijek throwsa `EPISODE_TOO_LARGE` s actionable hintom
+
+**Domain greške** (mapirane u MCP `isError` response):
+`EPISODE_NOT_FOUND`, `EPISODE_TOO_LARGE`, `VALIDATION_ERROR`, `STORAGE_ERROR`.
+
+**Tools planirani za Fazu 2+:** `list_speakers`, `get_related_episodes`, `analytics_top_speakers`, `chat` (Q&A).
 
 ## Transport
 

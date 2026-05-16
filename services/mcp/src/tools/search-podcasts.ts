@@ -3,7 +3,8 @@
 // Tijek:
 //  1. embed query string → 1024-d bge-m3 vektor
 //  2. CH SELECT ORDER BY cosineDistance(...) LIMIT N (USearch index ubrzava)
-//  3. format: deep YouTube link s `t=` na start_ts, snippet teksta, score
+//  3. format: deep link na domovina.ai frontend (`/v/{id}/t/{start_ts}`),
+//     snippet teksta, score
 
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
@@ -158,7 +159,7 @@ export async function searchPodcasts(
       end_ts: r.end_ts,
       text: r.text,
       score: 1 - r.distance,
-      deep_link: `https://www.youtube.com/watch?v=${r.youtube_id}&t=${tSec}s`,
+      deep_link: `https://domovina.ai/v/${r.youtube_id}/t/${tSec}`,
     };
   });
 }
