@@ -19,6 +19,12 @@ import {
   ListChannelsInput,
   listChannelsJsonSchema,
 } from "./tools/list-channels.js";
+import {
+  getEpisode,
+  GetEpisodeError,
+  GetEpisodeInput,
+  getEpisodeJsonSchema,
+} from "./tools/get-episode.js";
 
 
 export interface ServerDeps {
@@ -72,6 +78,17 @@ export function createServer(deps: ServerDeps): Server {
           "filteru.",
         inputSchema: listChannelsJsonSchema,
       },
+      {
+        name: "get_episode",
+        description:
+          "Dohvati metapodatke, poglavlja i (po želji) cijeli transkript za jednu " +
+          "epizodu prema YouTube ID-u. Vraća naslov, govornike, trajanje, popis " +
+          "poglavlja (outline chunkovi) i transkript po segmentima s timestamp-ima. " +
+          "Za duge epizode (>80K char) bez `view_range`-a, transkript je izostavljen " +
+          "uz upit da se dohvati po dijelovima. Koristi za doktrinarnu/temeljnu " +
+          "analizu cijele epizode kad search_podcasts vraća premali coverage.",
+        inputSchema: getEpisodeJsonSchema,
+      },
     ],
   }));
 
@@ -101,6 +118,41 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `search_podcasts failed: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "get_episode") {
+      const parsed = GetEpisodeInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `VALIDATION_ERROR: ${parsed.error.issues
+                .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+                .join("; ")}`,
+            },
+          ],
+        };
+      }
+      try {
+        const result = await getEpisode(parsed.data, { ch: deps.ch });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        if (err instanceof GetEpisodeError) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: `${err.code}: ${err.message}` }],
+          };
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `STORAGE_ERROR: ${msg}` }],
         };
       }
     }
