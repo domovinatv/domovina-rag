@@ -15,6 +15,16 @@ import type { EmbedderClient } from "../embedder.js";
 export const SearchPodcastsInput = z.object({
   query: z.string().min(2).max(500).describe("Tekstualni upit na hrvatskom"),
   channel: z.string().optional().describe("Filter na slug kanala (npr. 'podcast_cuspajz')"),
+  speaker: z
+    .string()
+    .min(2)
+    .max(100)
+    .optional()
+    .describe(
+      "Filter: vrati samo chunkove gdje navedeni govornik stvarno govori. " +
+        "Case-insensitive partial match (npr. 'Miletić' matcha 'Marin Miletić'). " +
+        "Koristi za 'što je X rekao o Y' upite kako bi izbjegao chunkove gdje se osoba samo spominje.",
+    ),
   limit: z.number().int().min(1).max(50).default(10).describe("Maks. broj rezultata"),
   lexical_terms: z
     .array(z.string().min(1).max(50))
@@ -52,6 +62,14 @@ export const searchPodcastsJsonSchema = {
   properties: {
     query: { type: "string", minLength: 2, maxLength: 500, description: "Tekstualni upit na hrvatskom" },
     channel: { type: "string", description: "Filter na slug kanala (npr. 'podcast_cuspajz')" },
+    speaker: {
+      type: "string",
+      minLength: 2,
+      maxLength: 100,
+      description:
+        "Filter: samo chunkovi gdje X stvarno govori (NE spominjanje). " +
+        "Case-insensitive partial match (npr. 'Miletić' → 'Marin Miletić').",
+    },
     limit: { type: "integer", minimum: 1, maximum: 50, default: 10, description: "Maks. broj rezultata" },
     lexical_terms: {
       type: "array",
@@ -94,6 +112,16 @@ export async function searchPodcasts(
   if (args.channel) {
     whereParts.push("channel = {channel:String}");
     params.channel = args.channel;
+  }
+  if (args.speaker) {
+    // Case-insensitive partial match nad comma-separated speaker kolonom.
+    // `position` vraća poziciju substring-a ili 0; > 0 = match.
+    // Bez lowerUTF8 na obje strane jer LowCardinality + position nije idealan;
+    // koristimo lowerUTF8 + ilike pattern.
+    whereParts.push(
+      "positionCaseInsensitiveUTF8(speaker, {speaker:String}) > 0",
+    );
+    params.speaker = args.speaker;
   }
   if (args.lexical_terms && args.lexical_terms.length > 0) {
     // hasToken koristi tokenbf_v1 INDEX idx_text_tokens (vidi infra/clickhouse/init.sql).
