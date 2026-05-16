@@ -132,23 +132,27 @@ export async function listEpisodes(
     limit: args.limit,
   };
   const whereParts: string[] = [];
+  // NAPOMENA: WHERE kolone moraju biti kvalificirane s `rag_chunks.` jer SELECT
+  // ima `any(channel) AS channel` i `toString(any(upload_date)) AS upload_date` —
+  // CH inače rezolvira nekvalificirani naziv u SELECT alias agregata i puca s
+  // "Aggregate function … is found in WHERE in query".
   if (args.channel) {
-    whereParts.push("channel = {channel:String}");
+    whereParts.push("rag_chunks.channel = {channel:String}");
     params.channel = args.channel;
   }
   if (args.speaker) {
     whereParts.push(
-      "positionCaseInsensitiveUTF8(speaker, {speaker:String}) > 0",
+      "positionCaseInsensitiveUTF8(rag_chunks.speaker, {speaker:String}) > 0",
     );
     params.speaker = args.speaker;
   }
   if (args.min_upload_date) {
     // Lexicographic comparison workaround — vidi search-podcasts.ts za detalje.
-    whereParts.push("toString(upload_date) >= {min_date:String}");
+    whereParts.push("toString(rag_chunks.upload_date) >= {min_date:String}");
     params.min_date = args.min_upload_date;
   }
   if (args.max_upload_date) {
-    whereParts.push("toString(upload_date) <= {max_date:String}");
+    whereParts.push("toString(rag_chunks.upload_date) <= {max_date:String}");
     params.max_date = args.max_upload_date;
   }
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";

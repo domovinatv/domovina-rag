@@ -164,7 +164,7 @@ export async function countMentions(
     WHERE ${whereParts.join(" AND ")}
     GROUP BY group_value
     HAVING group_value != ''
-    ORDER BY mention_count DESC
+    ORDER BY count() DESC
     LIMIT {limit:UInt32}
   `;
 
