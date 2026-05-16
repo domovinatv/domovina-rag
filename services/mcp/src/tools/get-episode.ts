@@ -348,7 +348,7 @@ export async function getEpisode(
       speakers: Array.from(speakersSet).sort(),
       chunk_count: rows.length,
       total_char_count: totalChars,
-      deep_link: `https://www.youtube.com/watch?v=${args.youtube_id}`,
+      deep_link: `https://domovina.ai/v/${args.youtube_id}`,
     },
     chapters,
     transcript,

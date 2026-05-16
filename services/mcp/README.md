@@ -23,7 +23,7 @@ Tijek:
 2. ClickHouse `cosineDistance` sort, `vector_similarity` HNSW index ubrzava
 3. Opcionalno `lexical_terms` filtriranje preko `hasToken` (Bloom filter)
 4. PG lookup za `episode_title` po `youtube_id`-evima
-5. Rezultati: `chunk_id`, `youtube_id`, `deep_link` (s `t=` na `start_ts`),
+5. Rezultati: `chunk_id`, `youtube_id`, `deep_link` (`https://domovina.ai/v/{id}/t/{start_ts}`),
    `channel`, `upload_date`, `episode_title`, `speakers`, `text`, `score`
 
 ```mermaid
