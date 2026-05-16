@@ -31,8 +31,12 @@ export const GetEpisodeInput = z
       .string()
       .regex(/^[A-Za-z0-9_-]{11}$/, "youtube_id mora biti 11-znakovni YouTube video ID")
       .describe("11-znakovni YouTube video ID (npr. '5J9GQ0sFe3M')"),
-    include_transcript: z.coerce
-      .boolean()
+    include_transcript: z
+      .preprocess(
+        // Vidi search-podcasts.ts za rationale (z.coerce.boolean bug).
+        (v) => (v === "false" ? false : v === "true" ? true : v),
+        z.boolean(),
+      )
       .default(true)
       .describe(
         "Ako false, vrati samo metadata + chapters bez chunkova teksta. " +

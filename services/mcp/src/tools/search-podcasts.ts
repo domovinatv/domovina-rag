@@ -35,8 +35,13 @@ export const SearchPodcastsInput = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Format: YYYY-MM-DD")
     .optional()
     .describe("Filter: samo chunkovi iz epizoda objavljenih <= ovom datumu."),
-  include_summaries: z.coerce
-    .boolean()
+  include_summaries: z
+    .preprocess(
+      // z.coerce.boolean je Boolean(x) koji za string "false" vraća true.
+      // Preprocess handluje "false"/"true" stringove pravilno + native bool.
+      (v) => (v === "false" ? false : v === "true" ? true : v),
+      z.boolean(),
+    )
     .default(true)
     .describe(
       "Ako false, isključuje article_summary chunkove (start=end=0, bez govornika). " +
