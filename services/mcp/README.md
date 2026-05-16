@@ -82,7 +82,25 @@ Vraća metapodatke, popis poglavlja i (po želji) cijeli transkript jedne epizod
 **Domain greške** (mapirane u MCP `isError` response):
 `EPISODE_NOT_FOUND`, `EPISODE_TOO_LARGE`, `VALIDATION_ERROR`, `STORAGE_ERROR`.
 
-**Tools planirani za Fazu 2+:** `list_speakers`, `get_related_episodes`, `analytics_top_speakers`, `chat` (Q&A).
+## Tool: `list_episodes`
+
+Vraća distinct epizode korpusa s metapodacima (naslov, kanal, datum, trajanje, govornici, broj chunkova). Use case: discovery/browsing, "tko sve gostuje", "najnovije epizode".
+
+Argumenti: `channel?`, `speaker?` (partial match), `min_upload_date?`, `max_upload_date?` (YYYY-MM-DD), `sort_by` (`upload_date_desc`|`asc`|`chunks_desc`|`duration_desc`), `limit` (1-100, default 20).
+
+## Tool: `count_mentions`
+
+Agregat: top N grupa (channel/speaker/month) po broju chunkova koji semantički matchaju upit. Vraća samo brojeve, ne sadržaj — drastično manji payload od `search_podcasts(limit=N)`.
+
+Argumenti: `query`, `group_by` (`channel`|`speaker`|`month`), `relevance_threshold` (0-1, default 0.4), `limit` (1-50, default 20), `min/max_upload_date?`, `channel?`.
+
+## Tool: `server_info`
+
+Vraća metadata o servisu i korpusu: verzija, build info (BUILD_SHA, BUILD_DATE env vars), dataset stats (channels/episodes/chunks counts + earliest/latest_upload), popis dostupnih tool-ova.
+
+Bez argumenata. Komplementarno standardnom `Implementation` objektu iz MCP `initialize` handshake-a — taj je static, ovaj je live.
+
+**Tools planirani za Fazu 2+:** `list_speakers` (Faza 3, traži speaker entity resolution), `get_related_episodes`, `chat` (Q&A pipeline).
 
 ## Transport
 

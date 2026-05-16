@@ -209,6 +209,105 @@ const ASSERTIONS = {
       ? null
       : `${zero.length} transcript chunks have start=end=0 (expected ${want ? "0" : "≥1"})`;
   },
+
+  // ─── Generic asserteri za object/array payloade (Sprint 1-3 cases) ───
+
+  object_has_field: (p, field) =>
+    Array.isArray(p)
+      ? null  // za array payload — provjeri po elementima (vidi every_result_has_field)
+      : p && typeof p === "object" && field in p
+      ? null
+      : `expected field '${field}' u object payload`,
+
+  object_has_field_path: (p, dotted) => {
+    const parts = dotted.split(".");
+    let cur = p;
+    for (const part of parts) {
+      if (!cur || typeof cur !== "object" || !(part in cur)) {
+        return `field path '${dotted}' missing at '${part}'`;
+      }
+      cur = cur[part];
+    }
+    return null;
+  },
+
+  object_field_path_number_min: (p, [dotted, minVal]) => {
+    const parts = dotted.split(".");
+    let cur = p;
+    for (const part of parts) {
+      cur = cur?.[part];
+    }
+    return typeof cur === "number" && cur >= minVal
+      ? null
+      : `field '${dotted}' = ${cur}, expected number >= ${minVal}`;
+  },
+
+  object_has_array_field: (p, field) =>
+    p && Array.isArray(p[field])
+      ? null
+      : `expected array field '${field}'`,
+
+  object_array_field_includes: (p, [field, value]) =>
+    p && Array.isArray(p[field]) && p[field].includes(value)
+      ? null
+      : `expected array field '${field}' to include '${value}'`,
+
+  every_result_has_field: (rows, field) => {
+    if (!Array.isArray(rows)) return `payload is not an array`;
+    const missing = rows.filter((r) => !(field in r));
+    return missing.length === 0
+      ? null
+      : `${missing.length}/${rows.length} results missing field '${field}'`;
+  },
+
+  every_result_speakers_includes_substring: (rows, substr) => {
+    if (!Array.isArray(rows)) return `payload is not an array`;
+    const missing = rows.filter(
+      (r) => !Array.isArray(r.speakers) || !r.speakers.some((s) => s.includes(substr)),
+    );
+    return missing.length === 0
+      ? null
+      : `${missing.length}/${rows.length} results don't have speaker containing '${substr}'`;
+  },
+
+  every_result_chunk_strategy_not_summary: (rows) => {
+    if (!Array.isArray(rows)) return `payload is not an array`;
+    // Note: chunk_strategy nije u SearchResult shape-u; ovo provjerava chunk_id pattern
+    // koji za summary chunkove ima `_summary_` suffix.
+    const summaries = rows.filter((r) => /_summary_/.test(r.chunk_id));
+    return summaries.length === 0
+      ? null
+      : `${summaries.length}/${rows.length} results su article_summary chunkovi (expected 0)`;
+  },
+
+  results_sorted_by_upload_date_desc: (rows) => {
+    if (!Array.isArray(rows) || rows.length < 2) return null;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i].upload_date > rows[i - 1].upload_date) {
+        return `not sorted desc: ${rows[i - 1].upload_date} -> ${rows[i].upload_date} at index ${i}`;
+      }
+    }
+    return null;
+  },
+
+  results_sorted_by_mention_count_desc: (rows) => {
+    if (!Array.isArray(rows) || rows.length < 2) return null;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i].mention_count > rows[i - 1].mention_count) {
+        return `not sorted desc: ${rows[i - 1].mention_count} -> ${rows[i].mention_count} at index ${i}`;
+      }
+    }
+    return null;
+  },
+
+  every_result_group_value_matches_pattern: (rows, patternStr) => {
+    if (!Array.isArray(rows)) return `payload is not an array`;
+    const re = new RegExp(patternStr);
+    const bad = rows.filter((r) => !re.test(r.group_value));
+    return bad.length === 0
+      ? null
+      : `${bad.length}/${rows.length} group_values don't match /${patternStr}/`;
+  },
 };
 
 

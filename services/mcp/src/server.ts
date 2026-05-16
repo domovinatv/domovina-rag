@@ -25,6 +25,21 @@ import {
   GetEpisodeInput,
   getEpisodeJsonSchema,
 } from "./tools/get-episode.js";
+import {
+  listEpisodes,
+  ListEpisodesInput,
+  listEpisodesJsonSchema,
+} from "./tools/list-episodes.js";
+import {
+  getServerInfo,
+  ServerInfoInput,
+  serverInfoJsonSchema,
+} from "./tools/server-info.js";
+import {
+  countMentions,
+  CountMentionsInput,
+  countMentionsJsonSchema,
+} from "./tools/count-mentions.js";
 
 
 export interface ServerDeps {
@@ -32,6 +47,19 @@ export interface ServerDeps {
   ch: ClickHouseClient;
   embedder: EmbedderClient;
 }
+
+
+// Tool registry — source of truth za listu imena. Mora se sinkronizirati s
+// `tools: [...]` listom u ListToolsRequestSchema handleru i s case-ovima u
+// CallToolRequestSchema. server_info tool ovo vraća kroz introspection.
+const TOOL_NAMES = [
+  "search_podcasts",
+  "list_channels",
+  "list_episodes",
+  "get_episode",
+  "count_mentions",
+  "server_info",
+] as const;
 
 
 export function createServer(deps: ServerDeps): Server {
@@ -79,6 +107,16 @@ export function createServer(deps: ServerDeps): Server {
         inputSchema: listChannelsJsonSchema,
       },
       {
+        name: "list_episodes",
+        description:
+          "Vrati listu epizoda korpusa (distinct po youtube_id-u) s metapodacima " +
+          "(naslov, kanal, datum, trajanje, govornici, broj chunkova). Podržava " +
+          "filter po kanalu, govorniku, datumu objave i sortiranje po datumu, " +
+          "trajanju ili veličini. Use case: 'tko gostuje u kanalu X', 'najnovije " +
+          "epizode iz svibnja', 'browse korpusa bez specifičnog upita'.",
+        inputSchema: listEpisodesJsonSchema,
+      },
+      {
         name: "get_episode",
         description:
           "Dohvati metapodatke, poglavlja i (po želji) cijeli transkript za jednu " +
@@ -88,6 +126,26 @@ export function createServer(deps: ServerDeps): Server {
           "uz upit da se dohvati po dijelovima. Koristi za doktrinarnu/temeljnu " +
           "analizu cijele epizode kad search_podcasts vraća premali coverage.",
         inputSchema: getEpisodeJsonSchema,
+      },
+      {
+        name: "count_mentions",
+        description:
+          "Agregat: vrati top N grupa (channel/speaker/month) po broju chunkova " +
+          "koji semantički matchaju upit. Vraća samo brojeve (mention_count, " +
+          "episode_count), ne sadržaj — drastično manji payload nego " +
+          "search_podcasts(limit=50). Use case: 'u kojem kanalu najviše Y', " +
+          "'tko najčešće spominje Z', 'u kojem mjesecu najviše rasprava o W'.",
+        inputSchema: countMentionsJsonSchema,
+      },
+      {
+        name: "server_info",
+        description:
+          "Vrati metapodatke o MCP servisu i stanju korpusa: verziju, build info, " +
+          "statistiku dataset-a (broj kanala/epizoda/chunkova, datum najnovije i " +
+          "najstarije epizode), popis dostupnih tool-ova. Koristi za debug, za " +
+          "provjeru svježine podataka i za otkrivanje koje verzije/feature-i su " +
+          "trenutno dostupni.",
+        inputSchema: serverInfoJsonSchema,
       },
     ],
   }));
@@ -118,6 +176,30 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `search_podcasts failed: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "list_episodes") {
+      const parsed = ListEpisodesInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const results = await listEpisodes(parsed.data, { ch: deps.ch });
+        return {
+          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `list_episodes failed: ${msg}` }],
         };
       }
     }
@@ -153,6 +235,63 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `STORAGE_ERROR: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "count_mentions") {
+      const parsed = CountMentionsInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const results = await countMentions(parsed.data, {
+          ch: deps.ch,
+          embedder: deps.embedder,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `count_mentions failed: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "server_info") {
+      const parsed = ServerInfoInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const info = await getServerInfo(parsed.data, {
+          ch: deps.ch,
+          serviceName: deps.config.serviceName,
+          serviceVersion: deps.config.serviceVersion,
+          publicBaseUrl: deps.config.publicBaseUrl,
+          toolNames: [...TOOL_NAMES],
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(info, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `server_info failed: ${msg}` }],
         };
       }
     }

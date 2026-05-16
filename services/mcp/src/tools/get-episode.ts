@@ -25,30 +25,45 @@ export const DEFAULT_SOFT_CHAR_LIMIT = 80_000;
 export const DEFAULT_HARD_CHAR_LIMIT = 200_000;
 
 
-export const GetEpisodeInput = z.object({
-  youtube_id: z
-    .string()
-    .regex(/^[A-Za-z0-9_-]{11}$/, "youtube_id mora biti 11-znakovni YouTube video ID")
-    .describe("11-znakovni YouTube video ID (npr. '5J9GQ0sFe3M')"),
-  include_transcript: z
-    .boolean()
-    .default(true)
-    .describe(
-      "Ako false, vrati samo metadata + chapters bez chunkova teksta. " +
-        "Korisno kad treba samo pregled epizode (govornici, trajanje, naslov).",
-    ),
-  view_range: z
-    .tuple([z.number().min(0), z.number().min(0)])
-    .optional()
-    .refine((r) => !r || r[0] < r[1], {
-      message: "view_range: start mora biti < end (npr. [0, 600])",
-    })
-    .describe(
-      "Filtriraj chunkove na [start_sec, end_sec] vremenski raspon. " +
-        "Koristi za fokusirani pregled dijela duge epizode (npr. [0, 600] = " +
-        "prvih 10 minuta). Bypassira soft limit, ali ne i hard.",
-    ),
-});
+export const GetEpisodeInput = z
+  .object({
+    youtube_id: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{11}$/, "youtube_id mora biti 11-znakovni YouTube video ID")
+      .describe("11-znakovni YouTube video ID (npr. '5J9GQ0sFe3M')"),
+    include_transcript: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Ako false, vrati samo metadata + chapters bez chunkova teksta. " +
+          "Korisno kad treba samo pregled epizode (govornici, trajanje, naslov).",
+      ),
+    view_range: z
+      .tuple([z.number().min(0), z.number().min(0)])
+      .optional()
+      .refine((r) => !r || r[0] < r[1], {
+        message: "view_range: start mora biti < end (npr. [0, 600])",
+      })
+      .describe(
+        "Filtriraj chunkove na [start_sec, end_sec] vremenski raspon. " +
+          "Koristi za fokusirani pregled dijela duge epizode (npr. [0, 600] = " +
+          "prvih 10 minuta). Bypassira soft limit, ali ne i hard.",
+      ),
+    chapter_index: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "1-based indeks u chapters[] (1 = prvo poglavlje). Konvenijencija nad " +
+          "view_range — interno se resolvira na [chapter.start_ts, chapter.end_ts]. " +
+          "Mutually exclusive s view_range. Workflow: prvo pozvati include_transcript=false " +
+          "da vidiš chapters, pa pozvati opet s chapter_index=N.",
+      ),
+  })
+  .refine((d) => !(d.view_range && d.chapter_index !== undefined), {
+    message: "view_range i chapter_index su međusobno isključivi",
+  });
 
 export type GetEpisodeArgs = z.infer<typeof GetEpisodeInput>;
 
@@ -73,7 +88,16 @@ export const getEpisodeJsonSchema = {
       minItems: 2,
       maxItems: 2,
       description:
-        "Filtriraj chunkove na [start_sec, end_sec] raspon. Bypassira soft limit.",
+        "Filtriraj chunkove na [start_sec, end_sec] raspon. Bypassira soft limit. " +
+        "Mutually exclusive s chapter_index.",
+    },
+    chapter_index: {
+      type: "integer",
+      minimum: 1,
+      description:
+        "1-based indeks u chapters[] (npr. 1 = prvo poglavlje). Interno se resolvira " +
+        "u view_range. Mutually exclusive s view_range. Workflow: prvo include_transcript=false " +
+        "da dohvatiš chapters listu, pa pozovi opet s chapter_index=N.",
     },
   },
   required: ["youtube_id"],
@@ -297,6 +321,27 @@ export async function getEpisode(
     })
     .sort((a, b) => a.start_ts - b.start_ts);
 
+  // ─── Resolve chapter_index → view_range (Sprint 2) ──────────────────
+  // chapter_index je conveniance — interno se mapira na [chapter.start_ts,
+  // chapter.end_ts]. Zod refine je već garantirao mutual exclusion s view_range.
+  let effectiveViewRange: [number, number] | undefined = args.view_range;
+  if (args.chapter_index !== undefined) {
+    if (chapters.length === 0) {
+      throw new GetEpisodeError(
+        "EPISODE_TOO_LARGE",  // reuse — nije strict TOO_LARGE ali je client-friendly
+        `Epizoda nema chapters (možda samo article_summary chunkovi). chapter_index ne može se resolvirati.`,
+      );
+    }
+    if (args.chapter_index > chapters.length) {
+      throw new GetEpisodeError(
+        "EPISODE_TOO_LARGE",
+        `chapter_index ${args.chapter_index} je izvan raspona (epizoda ima ${chapters.length} chapters; valid: 1-${chapters.length}).`,
+      );
+    }
+    const ch = chapters[args.chapter_index - 1]!;
+    effectiveViewRange = [ch.start_ts, ch.end_ts];
+  }
+
   // ─── Filter za view_range ────────────────────────────────────────────
   // Overlap test: chunk je u rasponu ako se njegov [start, end] presijeca s
   // [view_start, view_end]. Strikni "fully inside" bi bio pre-restriktivan jer
@@ -308,8 +353,8 @@ export async function getEpisode(
   // semantički ne — user koji traži [0, 600] ne želi summary cijele epizode.
   let filteredRows = rows;
   let timeRange: [number, number] | null = null;
-  if (args.view_range) {
-    const [viewStart, viewEnd] = args.view_range;
+  if (effectiveViewRange) {
+    const [viewStart, viewEnd] = effectiveViewRange;
     filteredRows = rows.filter(
       (r) =>
         hasValidTimestamp(r) &&
@@ -323,9 +368,9 @@ export async function getEpisode(
 
   // ─── Hard limit check — vrijedi UVIJEK, čak i s view_range ───────────
   if (filteredChars > hardLimit) {
-    const hint = args.view_range
-      ? `suzi view_range (trenutni: [${args.view_range[0]}, ${args.view_range[1]}], chars: ${filteredChars})`
-      : `koristi view_range=[start_sec, end_sec] da dohvatiš samo dio epizode (ukupno ${filteredChars} char preko hard limita ${hardLimit})`;
+    const hint = effectiveViewRange
+      ? `suzi view_range (trenutni: [${effectiveViewRange[0]}, ${effectiveViewRange[1]}], chars: ${filteredChars})`
+      : `koristi view_range=[start_sec, end_sec] ili chapter_index da dohvatiš samo dio epizode (ukupno ${filteredChars} char preko hard limita ${hardLimit})`;
     throw new GetEpisodeError(
       "EPISODE_TOO_LARGE",
       `Transkript prelazi hard limit ${hardLimit} char (filtrirano: ${filteredChars}). ${hint}`,
@@ -334,6 +379,7 @@ export async function getEpisode(
 
   // ─── Soft limit — vrati metadata+chapters, transcript=null ───────────
   // Soft vrijedi SAMO kad nema view_range-a (view_range = eksplicitna namjera).
+  // chapter_index → effectiveViewRange == eksplicitna namjera isto.
   const includeTranscript = args.include_transcript;
   let transcript: TranscriptChunk[] | null = null;
   let truncated = false;
@@ -342,13 +388,14 @@ export async function getEpisode(
   if (!includeTranscript) {
     transcript = null;
     truncationReason = "include_transcript=false";
-  } else if (!args.view_range && filteredChars > softLimit) {
+  } else if (!effectiveViewRange && filteredChars > softLimit) {
     transcript = null;
     truncated = true;
     truncationReason =
       `Transkript prelazi soft limit ${softLimit} char (ukupno: ${filteredChars}). ` +
-      `Pozovi opet s view_range=[start_sec, end_sec] da dohvatiš dio epizode ` +
-      `(npr. [0, 600] = prvih 10 min). Trajanje epizode: ${Math.round(durationSec)}s.`;
+      `Pozovi opet s view_range=[start_sec, end_sec] ili chapter_index=N da dohvatiš ` +
+      `dio epizode (npr. [0, 600] = prvih 10 min, ili chapter_index=1 za prvo poglavlje). ` +
+      `Trajanje epizode: ${Math.round(durationSec)}s. Dostupno chapters: ${chapters.length}.`;
   } else {
     transcript = filteredRows.map((r) => ({
       chunk_id: r.chunk_id,

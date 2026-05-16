@@ -96,8 +96,11 @@
           <td>
             <div class="param-list">
               <strong>query</strong> (string, obavezan): prirodno jezični upit, 2–500 znakova<br/>
-              <strong>limit</strong> (broj, neobavezan): 1–50, zadano 10<br/>
+              <strong>limit</strong> (broj, neobavezan): 1–25, zadano 10<br/>
               <strong>channel</strong> (string, neobavezan): slug kanala (npr. <code>podcast_cuspajz</code>)<br/>
+              <strong>speaker</strong> (string, neobavezan): filter na govornika — case-insensitive partial match (npr. <code>Miletić</code>)<br/>
+              <strong>min_upload_date</strong>, <strong>max_upload_date</strong> (YYYY-MM-DD, neobavezno): filter po datumu objave<br/>
+              <strong>include_summaries</strong> (bool, zadano <code>true</code>): ako <code>false</code>, isključuje AI sažetke (samo direktni citati)<br/>
               <strong>lexical_terms</strong> (popis stringova, neobavezan): hibridni filter — chunk mora sadržavati SVE navedene tokene; do 10 tokena
             </div>
           </td>
@@ -117,7 +120,75 @@
             <div class="param-list">
               <strong>youtube_id</strong> (string, obavezan): 11-znakovni YouTube video ID (npr. <code>5J9GQ0sFe3M</code>)<br/>
               <strong>include_transcript</strong> (bool, neobavezan): zadano <code>true</code>; <code>false</code> vraća samo meta + poglavlja<br/>
-              <strong>view_range</strong> (popis dvaju brojeva, neobavezan): <code>[start_sec, end_sec]</code> — filtriraj chunkove na vremenski raspon (npr. <code>[0, 600]</code> = prvih 10 min). Bypassira soft limit.
+              <strong>view_range</strong> (popis dvaju brojeva, neobavezan): <code>[start_sec, end_sec]</code> — filtriraj chunkove na vremenski raspon (npr. <code>[0, 600]</code> = prvih 10 min). Bypassira soft limit.<br/>
+              <strong>chapter_index</strong> (broj, neobavezan): 1-based indeks u <code>chapters[]</code> — convenience nad <code>view_range</code>-om. Mutually exclusive s njim.
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td><code>list_channels</code></td>
+          <td>
+            Vraća popis svih kanala u korpusu sa statistikama (broj epizoda i
+            chunkova, datum prvog i zadnjeg uploada). Koristi za pregled korpusa
+            i za biranje validnog slug-a kanala u <code>channel</code> filterima
+            drugih alata.
+          </td>
+          <td>
+            <div class="param-list">
+              <strong>sort_by</strong> (neobavezno): <code>episodes</code> (default), <code>chunks</code>, <code>channel</code> (abecedno)
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td><code>list_episodes</code></td>
+          <td>
+            Vraća listu epizoda korpusa (distinct po YouTube ID-u) s metapodacima:
+            naslov, kanal, datum objave, trajanje, govornici, broj chunkova.
+            Komplementarno <code>search_podcasts</code> — koristi za browsing
+            korpusa bez specifičnog upita, npr. „tko sve gostuje u kanalu X",
+            „najnovije epizode iz svibnja", „epizode govornika Y".
+          </td>
+          <td>
+            <div class="param-list">
+              <strong>channel</strong> (string, neobavezan): slug kanala<br/>
+              <strong>speaker</strong> (string, neobavezan): partial match na govornika<br/>
+              <strong>min_upload_date</strong>, <strong>max_upload_date</strong> (YYYY-MM-DD, neobavezno)<br/>
+              <strong>sort_by</strong>: <code>upload_date_desc</code> (default), <code>upload_date_asc</code>, <code>chunks_desc</code>, <code>duration_desc</code><br/>
+              <strong>limit</strong> (broj, neobavezno): 1–100, zadano 20
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td><code>count_mentions</code></td>
+          <td>
+            Agregator: vraća top N grupa (kanal, govornik ili mjesec) po broju
+            chunkova koji semantički matchaju upit. Vraća samo brojeve, ne sadržaj
+            — drastično manji odgovor od <code>search_podcasts</code>. Idealan za
+            statistička pitanja: „u kojem kanalu najviše govore o X", „tko najčešće
+            spominje Y", „u kojem mjesecu najviše rasprava o Z".
+          </td>
+          <td>
+            <div class="param-list">
+              <strong>query</strong> (string, obavezan): semantic upit za relevantne chunkove<br/>
+              <strong>group_by</strong> (obavezan): <code>channel</code> | <code>speaker</code> | <code>month</code><br/>
+              <strong>relevance_threshold</strong> (0–1, zadano 0.4): cosine similarity prag<br/>
+              <strong>limit</strong> (broj, neobavezno): 1–50, zadano 20<br/>
+              <strong>min_upload_date</strong>, <strong>max_upload_date</strong>, <strong>channel</strong> (filteri)
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td><code>server_info</code></td>
+          <td>
+            Vraća metapodatke o MCP servisu i stanju korpusa: verziju, build info,
+            statistiku dataset-a (broj kanala, epizoda, chunkova, datum najnovije i
+            najstarije epizode), popis dostupnih alata. Koristi za debug, provjeru
+            svježine podataka i otkrivanje koje su verzije/funkcionalnosti trenutno
+            dostupne.
+          </td>
+          <td>
+            <div class="param-list">
+              Nema parametara.
             </div>
           </td>
         </tr>
@@ -140,11 +211,6 @@
           <td><code>get_speaker</code></td>
           <td>Dohvati profil govornika prema imenu — popis pojavljivanja po epizodama, glavne teme, link na entity resolution. Zahtijeva završetak ensemble speaker pipeline-a (TitaNet + pyannote-wespeaker34).</td>
           <td>planirano (Faza 3)</td>
-        </tr>
-        <tr>
-          <td><code>list_channels</code></td>
-          <td>Popis aktivnih YouTube kanala u korpusu s metapodacima (ime, follower count, broj epizoda, zadnja sinkronizacija).</td>
-          <td>planirano (Faza 2)</td>
         </tr>
         <tr>
           <td><code>chat</code> (Q&amp;A)</td>

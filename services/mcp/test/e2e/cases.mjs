@@ -471,11 +471,12 @@ export default [
     },
     must_have: {
       tool_call_must_error: true,
-      error_contains_one_of: ["Invalid arguments", "max", "50"],
+      error_contains_one_of: ["Invalid arguments", "max", "25"],
     },
     expected_answer:
-      "limit max=50 → validation error. LLM klijent treba refraziraii s manjim " +
-      "limitom ili paginirati.",
+      "limit max=25 → validation error. LLM klijent treba refraziraii s manjim " +
+      "limitom ili paginirati. (Cap snižen s 50 na 25 u Sprint 3 jer veći " +
+      "broj prelazi tool budget LLM-a.)",
   },
 
   // ════════════════════════════════════════════════════════════════
@@ -630,5 +631,250 @@ export default [
     expected_answer:
       "Velika epizoda → transcript null, truncated=true s actionable porukom " +
       "koja upućuje na view_range. LLM treba pozvati opet po dijelovima.",
+  },
+
+  // ════════════════════════════════════════════════════════════════
+  // server_info test cases (Sprint 1+)
+  // ════════════════════════════════════════════════════════════════
+
+  {
+    id: "server-info-returns-version-and-dataset",
+    category: "meta",
+    requires: "current_smoke",
+    user_prompt: "Koja je verzija MCP-a i koliko je svjež korpus?",
+    tool_call: {
+      name: "server_info",
+      arguments: {},
+    },
+    must_have: {
+      object_has_field: "version",
+      object_has_field_path: "dataset.episodes",
+      object_field_path_number_min: ["dataset.episodes", 1],
+      object_has_array_field: "tools",
+      object_array_field_includes: ["tools", "search_podcasts"],
+    },
+    expected_answer:
+      "Service: domovina-podcast, version, dataset stats (channels/episodes/" +
+      "chunks counts + dates), popis tool-ova. LLM može surfacati version " +
+      "info u UI-u i koristi tools listu za capability negotiation.",
+  },
+
+  // ════════════════════════════════════════════════════════════════
+  // list_episodes test cases (Sprint 1)
+  // ════════════════════════════════════════════════════════════════
+
+  {
+    id: "list-episodes-channel-filter",
+    category: "discovery",
+    requires: "current_smoke",
+    user_prompt: "Daj mi epizode kanala ad_deum_podcast.",
+    tool_call: {
+      name: "list_episodes",
+      arguments: { channel: KNOWN_CHANNEL, limit: 10 },
+    },
+    must_have: {
+      min_results: 1,
+      all_results_have_channel: KNOWN_CHANNEL,
+      every_result_has_field: "youtube_id",
+      every_result_has_field: "title",
+      every_result_has_field: "speakers",
+    },
+    expected_answer:
+      "Distinct epizode kanala s metapodacima (title, speakers, " +
+      "duration_sec, chunk_count). LLM može prikazati kao listu za " +
+      "browsing.",
+  },
+
+  {
+    id: "list-episodes-recent-first",
+    category: "discovery",
+    requires: "current_smoke",
+    user_prompt: "Daj mi 3 najnovije epizode bilo kojeg kanala.",
+    tool_call: {
+      name: "list_episodes",
+      arguments: { limit: 3, sort_by: "upload_date_desc" },
+    },
+    must_have: {
+      exact_results: 3,
+      results_sorted_by_upload_date_desc: true,
+    },
+    expected_answer:
+      "3 najnovije epizode korpusa, sortirane silazno po datumu objave. " +
+      "Adresira gap iz dynamic e2e: 'najnovije X' upit više ne zahtijeva " +
+      "ručno sortiranje na klijentu.",
+  },
+
+  // ════════════════════════════════════════════════════════════════
+  // speaker filter (Sprint 1) + date filters / include_summaries (Sprint 2)
+  // ════════════════════════════════════════════════════════════════
+
+  {
+    id: "search-podcasts-speaker-filter",
+    category: "filter",
+    requires: "current_smoke",
+    user_prompt: "Što je rekao Fra Nikola Jurišić o kliničkoj smrti?",
+    tool_call: {
+      name: "search_podcasts",
+      arguments: {
+        query: "klinička smrt iskustvo",
+        speaker: "Jurišić",
+        limit: 5,
+      },
+    },
+    must_have: {
+      min_results: 1,
+      every_result_speakers_includes_substring: "Jurišić",
+    },
+    expected_answer:
+      "Samo chunkovi gdje Fra Nikola stvarno govori, ne i oni gdje se " +
+      "spominje. Speaker filter koristi positionCaseInsensitiveUTF8.",
+  },
+
+  {
+    id: "search-podcasts-include-summaries-false",
+    category: "filter",
+    requires: "current_smoke",
+    user_prompt: "Daj mi direktne citate (bez AI sažetaka) o kliničkoj smrti.",
+    tool_call: {
+      name: "search_podcasts",
+      arguments: {
+        query: "iskustvo kliničke smrti",
+        include_summaries: false,
+        limit: 5,
+      },
+    },
+    must_have: {
+      min_results: 1,
+      every_result_chunk_strategy_not_summary: true,
+    },
+    expected_answer:
+      "Bez article_summary chunkova — samo topic_transcript s realnim " +
+      "dijalogom i speakers/timestamps. Korisno za precizne citate.",
+  },
+
+  // ════════════════════════════════════════════════════════════════
+  // chapter_index u get_episode (Sprint 2)
+  // ════════════════════════════════════════════════════════════════
+
+  {
+    id: "get-episode-chapter-index",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Daj mi 12. poglavlje smoke epizode.",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: KNOWN_YT_ID, chapter_index: 12 },
+    },
+    must_have: {
+      episode_metadata_youtube_id: KNOWN_YT_ID,
+      episode_transcript_chunks_min: 1,
+      episode_no_untimestamped_chunks_in_transcript: true,
+    },
+    expected_answer:
+      "Chunkovi unutar 12. chaptera (resolvirano interno u view_range). " +
+      "Convenience nad view_range-om.",
+  },
+
+  {
+    id: "get-episode-chapter-index-out-of-range",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Daj mi 999. poglavlje (ne postoji).",
+    tool_call: {
+      name: "get_episode",
+      arguments: { youtube_id: KNOWN_YT_ID, chapter_index: 999 },
+    },
+    must_have: {
+      tool_call_must_error: true,
+      error_contains_one_of: ["EPISODE_TOO_LARGE", "izvan raspona"],
+    },
+    expected_answer:
+      "Out-of-range index → domain error s validnim rasponom u poruci.",
+  },
+
+  {
+    id: "get-episode-mutually-exclusive-range-and-chapter",
+    category: "episode",
+    requires: "current_smoke",
+    user_prompt: "Daj mi view_range I chapter_index istovremeno (greška).",
+    tool_call: {
+      name: "get_episode",
+      arguments: {
+        youtube_id: KNOWN_YT_ID,
+        view_range: [0, 600],
+        chapter_index: 1,
+      },
+    },
+    must_have: {
+      tool_call_must_error: true,
+      error_contains_one_of: ["VALIDATION_ERROR", "međusobno isključivi"],
+    },
+    expected_answer:
+      "Zod refine na object razini odbacuje kombinaciju s clear porukom.",
+  },
+
+  // ════════════════════════════════════════════════════════════════
+  // count_mentions agregator (Sprint 3)
+  // ════════════════════════════════════════════════════════════════
+
+  {
+    id: "count-mentions-by-channel",
+    category: "aggregation",
+    requires: "current_smoke",
+    user_prompt: "U kojem kanalu se najviše govori o kliničkoj smrti?",
+    tool_call: {
+      name: "count_mentions",
+      arguments: {
+        query: "klinička smrt iskustvo",
+        group_by: "channel",
+        limit: 10,
+      },
+    },
+    must_have: {
+      min_results: 1,
+      every_result_has_field: "group_value",
+      every_result_has_field: "mention_count",
+      results_sorted_by_mention_count_desc: true,
+    },
+    expected_answer:
+      "Lista kanala s brojem chunkova koji semantički matchaju upit. " +
+      "Drastično manji payload od search_podcasts(limit=N) + LLM agregacija.",
+  },
+
+  {
+    id: "count-mentions-by-speaker",
+    category: "aggregation",
+    requires: "current_smoke",
+    user_prompt: "Tko najčešće govori o vjeri?",
+    tool_call: {
+      name: "count_mentions",
+      arguments: { query: "vjera molitva", group_by: "speaker", limit: 10 },
+    },
+    must_have: {
+      min_results: 1,
+      every_result_has_field: "group_value",
+      every_result_has_field: "mention_count",
+    },
+    expected_answer:
+      "Lista govornika rangirana po broju mentions. Speaker kolona je " +
+      "comma-separated pa CH arrayJoin razbije svaki red.",
+  },
+
+  {
+    id: "count-mentions-by-month",
+    category: "aggregation",
+    requires: "current_smoke",
+    user_prompt: "U kojem mjesecu je bilo najviše rasprava o pobačaju?",
+    tool_call: {
+      name: "count_mentions",
+      arguments: { query: "pobačaj", group_by: "month", limit: 12 },
+    },
+    must_have: {
+      min_results: 1,
+      every_result_group_value_matches_pattern: "^\\d{4}-\\d{2}$",
+    },
+    expected_answer:
+      "Lista mjeseci u YYYY-MM formatu, sortirana silazno po " +
+      "mention_count. Otkriva trendove kroz vrijeme.",
   },
 ];
