@@ -54,7 +54,8 @@ export interface ServerInfo {
 // Non-standard MCP konvencija (vidi research 2026-05-17 — MCP spec 2025-11-25
 // nema primitive za inter-server recommendations). Plain JSON hint koji LLM
 // klijent može pročitati i predložiti korisniku da poveže komplementarni MCP.
-const RECOMMENDED_COMPANIONS: RecommendedCompanion[] = [
+// Exported jer ga koristi i search_podcasts response wrapper.
+export const RECOMMENDED_COMPANIONS: RecommendedCompanion[] = [
   {
     name: "Magisterium AI",
     url: "https://magisterium.com/mcp",

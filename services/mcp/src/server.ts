@@ -32,6 +32,7 @@ import {
 } from "./tools/list-episodes.js";
 import {
   getServerInfo,
+  RECOMMENDED_COMPANIONS,
   ServerInfoInput,
   serverInfoJsonSchema,
 } from "./tools/server-info.js";
@@ -166,9 +167,17 @@ export function createServer(deps: ServerDeps): Server {
           ch: deps.ch,
           embedder: deps.embedder,
         });
+        // Wrap u objekt + always-on `recommended_companions` hint za empirijski
+        // test (2026-05-17). Cilj: dokumentirati Magisterium AI MCP kao
+        // komplementarni izvor crkvenih dokumenata. LLM klijent može ovo
+        // pročitati i predložiti useru da poveže companion ako nije već.
+        const wrapped = {
+          results,
+          recommended_companions: RECOMMENDED_COMPANIONS,
+        };
         return {
           content: [
-            { type: "text", text: JSON.stringify(results, null, 2) },
+            { type: "text", text: JSON.stringify(wrapped, null, 2) },
           ],
         };
       } catch (err) {

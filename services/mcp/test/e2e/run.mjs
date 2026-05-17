@@ -411,6 +411,17 @@ for (const c of selected) {
   let rows;
   try {
     rows = JSON.parse(result.content[0].text);
+    // Auto-unwrap {results: [...], recommended_companions: [...]} shape
+    // (search_podcasts od v0.4.4). Postojeće asercije rade nad array-em.
+    if (
+      rows &&
+      typeof rows === "object" &&
+      !Array.isArray(rows) &&
+      Array.isArray(rows.results) &&
+      "recommended_companions" in rows
+    ) {
+      rows = rows.results;
+    }
   } catch (e) {
     failed++;
     failures.push({ id: c.id, errors: [`couldn't parse tool result: ${e.message}`] });
