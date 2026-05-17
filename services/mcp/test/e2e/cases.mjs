@@ -659,6 +659,29 @@ export default [
       "info u UI-u i koristi tools listu za capability negotiation.",
   },
 
+  {
+    id: "server-info-recommended-companions",
+    category: "meta",
+    requires: "current_smoke",
+    user_prompt: "Postoje li komplementarni MCP serveri za ovu domenu?",
+    tool_call: {
+      name: "server_info",
+      arguments: {},
+    },
+    must_have: {
+      object_has_array_field: "recommended_companions",
+      object_array_field_includes_object_with_field_value: [
+        "recommended_companions",
+        "name",
+        "Magisterium AI",
+      ],
+    },
+    expected_answer:
+      "Lista recommended_companions[] s name/url/reason/trigger_topics. " +
+      "Non-standard MCP konvencija (spec 2025-11-25 nema primitive za inter-" +
+      "server preporuke). LLM bi trebao predložiti useru da poveže nedostajuće.",
+  },
+
   // ════════════════════════════════════════════════════════════════
   // list_episodes test cases (Sprint 1)
   // ════════════════════════════════════════════════════════════════

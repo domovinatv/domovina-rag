@@ -57,7 +57,7 @@ export function loadConfig(): Config {
     clickhouseUrl: required("CLICKHOUSE_URL"),
     embedderUrl: optional("EMBEDDER_URL", "http://embedder:8000"),
     serviceName: "domovina-podcast",
-    serviceVersion: "0.4.2",
+    serviceVersion: "0.4.3",
     adminApiKey: process.env.ADMIN_API_KEY || null,
     rateLimitPerMinute: parseInt(optional("RATE_LIMIT_PER_MINUTE", "60"), 10),
     rateLimitPerHour: parseInt(optional("RATE_LIMIT_PER_HOUR", "1000"), 10),

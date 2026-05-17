@@ -33,6 +33,13 @@ export interface DatasetStats {
   latest_upload: string | null;
 }
 
+export interface RecommendedCompanion {
+  name: string;
+  url: string;
+  reason: string;
+  trigger_topics: string[];
+}
+
 export interface ServerInfo {
   service: string;
   version: string;
@@ -41,7 +48,36 @@ export interface ServerInfo {
   public_base_url: string;
   dataset: DatasetStats;
   tools: string[];
+  recommended_companions: RecommendedCompanion[];
 }
+
+// Non-standard MCP konvencija (vidi research 2026-05-17 — MCP spec 2025-11-25
+// nema primitive za inter-server recommendations). Plain JSON hint koji LLM
+// klijent može pročitati i predložiti korisniku da poveže komplementarni MCP.
+const RECOMMENDED_COMPANIONS: RecommendedCompanion[] = [
+  {
+    name: "Magisterium AI",
+    url: "https://magisterium.com/mcp",
+    reason:
+      "Za citirane crkvene izvore u hrvatskim katoličkim podcastima " +
+      "(pape, enciklike, koncilski dokumenti, sveci, čitanja dana) " +
+      "dohvaća kanonski tekst i metapodatke iz službenih Vatikan izvora.",
+    trigger_topics: [
+      "papa",
+      "enciklika",
+      "koncil",
+      "svetac",
+      "blaženik",
+      "kanonizacija",
+      "beatifikacija",
+      "Stepinac",
+      "Humanae Vitae",
+      "magisterij",
+      "katekizam",
+      "čitanja",
+    ],
+  },
+];
 
 
 interface StatsRow {
@@ -112,5 +148,6 @@ export async function getServerInfo(
     public_base_url: deps.publicBaseUrl,
     dataset,
     tools: deps.toolNames,
+    recommended_companions: RECOMMENDED_COMPANIONS,
   };
 }
