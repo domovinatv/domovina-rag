@@ -30,6 +30,10 @@
 #
 set -euo pipefail
 
+# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker i zstd
+# nisu vidljivi. Prepend Homebrew + /usr/local/bin da skripta radi i iz cron-a.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 cd "$(dirname "$0")/.."
 
 # shellcheck disable=SC1091

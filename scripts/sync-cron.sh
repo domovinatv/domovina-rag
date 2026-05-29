@@ -15,6 +15,10 @@
 # producer-side hook.
 set -uo pipefail
 
+# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, zstd i
+# ostali alati nisu vidljivi. Prepend Homebrew + /usr/local/bin.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
 
