@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd LaunchAgent za dnevni inkrementalni sync semantičke baze na cloud.
+
+  INSTALACIJA (per-user, ne sistemski):
+    cp infra/launchd/tv.domovina.rag.sync.plist ~/Library/LaunchAgents/
+    # zamijeni REPO_PATH placeholder u kopiji stvarnom putanjom repo-a
+    launchctl load   ~/Library/LaunchAgents/tv.domovina.rag.sync.plist
+    launchctl start  tv.domovina.rag.sync     # ručni test-run odmah
+
+  UKLANJANJE:
+    launchctl unload ~/Library/LaunchAgents/tv.domovina.rag.sync.plist
+    rm ~/Library/LaunchAgents/tv.domovina.rag.sync.plist
+
+  NAPOMENA: ako Mac spava u zakazano vrijeme, launchd pokreće job čim se
+  probudi (StartCalendarInterval semantika). Eksterni diskovi (DOMOVINA1TB/2TB)
+  moraju biti mountani — ako nisu, sync-incremental.sh ih preskoči uz WARN.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>tv.domovina.rag.sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>REPO_PATH/scripts/sync-cron.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>REPO_PATH</string>
+
+    <!-- Svaki dan u 04:00 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>REPO_PATH/.ingest-logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>REPO_PATH/.ingest-logs/launchd.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
