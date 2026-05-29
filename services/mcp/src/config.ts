@@ -27,6 +27,11 @@ export interface Config {
   // Rate limiting per client_id (in-memory sliding window).
   rateLimitPerMinute: number;
   rateLimitPerHour: number;
+  // Public deterministic search REST API (GET /api/search) — no OAuth, for
+  // the domovina.ai frontend. Disable to fall back to MCP-only.
+  publicSearchEnabled: boolean;
+  publicSearchAllowedOrigins: string[];
+  publicSearchRatePerMinute: number;
   // OAuth GC cron.
   oauthGcIntervalHours: number;
   oauthGcRetentionDays: number;
@@ -63,5 +68,14 @@ export function loadConfig(): Config {
     rateLimitPerHour: parseInt(optional("RATE_LIMIT_PER_HOUR", "1000"), 10),
     oauthGcIntervalHours: parseInt(optional("OAUTH_GC_INTERVAL_HOURS", "24"), 10),
     oauthGcRetentionDays: parseInt(optional("OAUTH_GC_RETENTION_DAYS", "90"), 10),
+    publicSearchEnabled: optional("PUBLIC_SEARCH_ENABLED", "true") !== "false",
+    publicSearchAllowedOrigins: optional(
+      "PUBLIC_SEARCH_ALLOWED_ORIGINS",
+      "https://domovina.ai,https://www.domovina.ai,http://localhost:5173",
+    )
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean),
+    publicSearchRatePerMinute: parseInt(optional("PUBLIC_SEARCH_RATE_PER_MINUTE", "30"), 10),
   };
 }

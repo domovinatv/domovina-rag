@@ -35,6 +35,7 @@ import { loadConfig } from "./config.js";
 import { createCh, createPg } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
 import { makeRateLimit } from "./rate-limit.js";
+import { mountPublicApi } from "./public-api.js";
 import { createServer } from "./server.js";
 
 
@@ -104,6 +105,12 @@ async function main() {
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: config.serviceName, version: config.serviceVersion });
   });
+
+  // Public deterministic search REST API (GET/POST /api/search) — NE-MCP,
+  // bez OAuth-a, za domovina.ai frontend. CORS allow-lista + per-IP rate limit.
+  if (config.publicSearchEnabled) {
+    mountPublicApi(app, { ch, embedder, config });
+  }
 
   // Browser landing — GET / s Accept: text/html (NE application/json ili SSE)
   // vraća HTML stranicu umjesto OAuth challenge-a.
