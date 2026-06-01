@@ -9,6 +9,13 @@
 #   cd services/mcp && npm run dev   # stdio transport, Claude Desktop
 
 services:
+  # Meili port-publish SAMO za lokalni dev (frontend keyword test + provisioning
+  # skripte gađaju localhost:7700). Produkcija je port-less — pristup ide preko
+  # Traefik/CF Tunnel (search.domovina.ai), vidi docs/coolify-meili-application.md.
+  meilisearch:
+    ports:
+      - "${MEILI_PORT:-7700}:7700"
+
   mcp:
     build: ./services/mcp
     depends_on:
