@@ -118,6 +118,18 @@ def main():
     sess = requests.Session()
     sess.headers.update({"Authorization": f"Bearer {MEILI_KEY}"})
 
+    # Kreiraj index s EKSPLICITNIM primaryKey. Meili ne može inferirati PK kad
+    # dokument ima dva polja koja završavaju na "id" (`id` + `youtube_id`) →
+    # `index_primary_key_multiple_candidates_found`, indexedDocuments=0.
+    # 201 = kreiran, 202 = task enqueued, "index_already_exists" = ok (idempotent).
+    print(f"[meili-poc] Osiguravam index '{INDEX}' (primaryKey=id)...")
+    cr = sess.post(f"{MEILI_URL}/indexes",
+                   json={"uid": INDEX, "primaryKey": "id"}, timeout=30)
+    if cr.status_code not in (200, 201, 202):
+        body = cr.json() if cr.headers.get("content-type", "").startswith("application/json") else {}
+        if body.get("code") != "index_already_exists":
+            cr.raise_for_status()
+
     # Konfiguriraj index settings (searchable, filterable, sortable)
     print("[meili-poc] Postavljam index settings...")
     sess.patch(f"{MEILI_URL}/indexes/{INDEX}/settings", json={

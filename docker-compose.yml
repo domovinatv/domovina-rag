@@ -92,6 +92,34 @@ services:
     # imena servisa) umjesto profile-a, jer build je velik (~3GB s torch+bge-m3).
     # Coolify ne podržava `--profile` flag iz UI-a, pa profile-i NE valjaju u cloud-u.
 
+  meilisearch:
+    # Frontend keyword tražilica (typo-tolerant, fasete) nad po-epizoda
+    # dokumentima. KOMPLEMENTARNO semantičkoj CH pretrazi (drugi use-case:
+    # čovjek tipka točnu riječ/ime u web UI). Index `episodes` se puni preko
+    # scripts/sync-meili.sh iz CH article_summary chunkova + PG title-ova.
+    image: getmeili/meilisearch:v1.11
+    environment:
+      # production env: traži master key, gasi dev web UI bez ključa.
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY mora biti set (>=16 znakova)}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meili_data:/meili_data
+    # `coolify` (external) + alias `domovina-meili` → reachable iz sync skripte
+    # i (opcionalno) MCP-a. Javno izlaganje za frontend ide preko CF Tunnel
+    # public hostname-a (search.domovina.ai), NE preko ovog internog aliasa —
+    # browser ne vidi internu mrežu. Vidi docs/coolify-meili-application.md.
+    networks:
+      internal:
+      coolify:
+        aliases: [domovina-meili]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   etl:
     build: ./services/etl
     # NB: embedder NIJE u depends_on namjerno — `EMBEDDER_URL` može pokazivati
@@ -130,6 +158,7 @@ volumes:
   pg_data:
   ch_data:
   hf_cache:
+  meili_data:
 
 networks:
   internal:
