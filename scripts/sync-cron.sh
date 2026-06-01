@@ -64,9 +64,21 @@ if ! docker ps --filter name=clickhouse --format '{{.Names}}' | grep -qi domovin
   sleep 10
 fi
 
-# ─── 4. Sync ──────────────────────────────────────────────────────────────────
-echo "[cron] Pokrećem sync-incremental.sh..."
+# ─── 4. Sync ClickHouse (semantička baza) ─────────────────────────────────────
+echo "[cron] Pokrećem sync-incremental.sh (ClickHouse delta)..."
 ./scripts/sync-incremental.sh
 RC=$?
+
+# ─── 5. Re-index Meili (keyword tražilica) ────────────────────────────────────
+# Meili index je derivat CH-a — kad CH dobije nove epizode, Meili treba refresh.
+# Puni re-index je jeftin (~sekunde za 2500 dok). Lokalni uvijek; cloud ako je
+# Meili gore (preskoči tiho ako nije deployan). Ne ruši cijeli cron na grešku.
+if [ "$RC" -eq 0 ]; then
+  echo "[cron] Re-indeksiram Meili (lokalni)..."
+  ./scripts/sync-meili.sh || echo "[cron] WARN: lokalni Meili re-index pao (nastavljam)."
+  echo "[cron] Re-indeksiram Meili (cloud)..."
+  ./scripts/sync-meili.sh --cloud || echo "[cron] WARN: cloud Meili re-index pao/nije deployan (nastavljam)."
+fi
+
 echo "[cron $(date '+%Y-%m-%d %H:%M:%S')] sync-cron gotov (rc=$RC)"
 exit $RC
