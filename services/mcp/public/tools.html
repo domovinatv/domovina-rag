@@ -178,6 +178,23 @@
           </td>
         </tr>
         <tr>
+          <td><code>get_person</code></td>
+          <td>
+            Profil govornika: agregira <em>sve</em> epizode u kojima jedna osoba
+            <em>govori</em>, kroz sve kanale, iza stabilnog sluga (npr.
+            <code>zeljka-markic</code>, <code>don-tomislav-lukac</code>). Vraća
+            broj kanala i epizoda, raspodjelu po kanalima, mjesečni timeline i
+            popis epizoda s dubinskim poveznicama. Granica: „govori" (govornik u
+            transkriptu), ne „spominje se u tekstu".
+          </td>
+          <td>
+            <div class="param-list">
+              <strong>slug</strong> (string, obavezan): ASCII-slug imena
+              (č→c, ć→c, š→s, ž→z, đ→d, razmak→<code>-</code>)
+            </div>
+          </td>
+        </tr>
+        <tr>
           <td><code>server_info</code></td>
           <td>
             Vraća metapodatke o MCP servisu i stanju korpusa: verziju, build info,
