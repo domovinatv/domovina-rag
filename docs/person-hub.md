@@ -159,15 +159,28 @@ Osoba bez spomena → `mentions: []`, `mention_episode_count: 0` (backward-compa
 
 ### Deploy mentions (uz gornji runbook)
 
+⚠️ **NIJEDAN init.sql se ne re-runa nakon prvog deploya — ni PG ni CH.** Dodavanje
+kolone postojećoj tablici traži eksplicitan `ALTER` (ili migraciju), inače novi
+kod piše u kolonu koje nema. Zato dva migracijska koraka (0. i 1b.) ispod.
+
 ```bash
-# 1. Migracija person_mentions (init.sql se NE re-runa; sync skripta usto self-bootstrapa):
+# 0. CH episode_mentions — kreiraj tablicu (prvi put) I dodaj mention_ts kolonu
+#    (init.sql se NE re-runa na CH). Lokalni CH (izvor je uvijek lokalni):
+docker exec -i $CH clickhouse-client -d rag --user rag_user --password $PW --query \
+  "ALTER TABLE episode_mentions ADD COLUMN IF NOT EXISTS mention_ts UInt32 DEFAULT 0"
+
+# 1. Migracija person_mentions (PG init.sql se NE re-runa; sync skripta self-bootstrapa):
 psql "$POSTGRES_URL" -f infra/postgres/migrations/003_person_mentions.sql
-# 2. CH episode_mentions tablica na lokalnom CH (init.sql se NE re-runa; kreiraj ručno ili
-#    re-createom sheme) + backfill po disku:
+# 1b. Timestamp deep-link kolona (v0.7.0). sync-person-mentions.sh SCHEMA_SQL ionako
+#     ima ADD COLUMN IF NOT EXISTS, pa se cloud sam nadogradi — ali za jasnoću:
+psql "$POSTGRES_URL" -f infra/postgres/migrations/004_person_mentions_ts.sql
+
+# 2. Backfill episode_mentions po disku (čita summary.json + article.json siblings):
 DATA_SOURCE_DIR=/Volumes/DOMOVINA1TB/... docker compose --profile etl run --rm etl mentions --input /data
 DATA_SOURCE_DIR=/Volumes/DOMOVINA2TB/... docker compose --profile etl run --rm etl mentions --input /data
-# 3. Derivat u PG (local + cloud):
+# 3. Derivat u PG (local + cloud; --cloud čita LOKALNI CH, piše cloud PG):
 ./scripts/sync-person-mentions.sh
 ./scripts/sync-person-mentions.sh --cloud
-# 4. Redeploy MCP (Coolify Application, rolling) — /api/person novi mentions dio.
+# 4. Redeploy MCP (Coolify Application, rolling) — nema push-webhooka, klik u UI.
+#    /health verzija potvrđuje da je novi kod živ.
 ```
