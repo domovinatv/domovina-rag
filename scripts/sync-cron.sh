@@ -96,5 +96,17 @@ if [ "$RC" -eq 0 ]; then
   ./scripts/sync-speakers.sh --cloud || echo "[cron] WARN: cloud speakers populate pao/nije deployan (nastavljam)."
 fi
 
+# ─── 7. Osvježi javni stats dashboard (derivat CH-a) ──────────────────────────
+# stats.json je derivat CH-a (agregati nad rag_chunks) kao Meili i speakers. Puni
+# ga sync-stats.sh i deploya na CF Pages (stats.domovina.ai). Consumer je zaseban
+# repo domovina-stats. Bez ovog koraka javni dashboard tiho zaostaje.
+# VAŽNO: isti razlog kao za Meili/speakers — svaki CH-derivat MORA imati korak
+# ovdje (vidi docs/data-refresh-flow.md § "Nova derivat-tablica").
+if [ "$RC" -eq 0 ]; then
+  echo "[cron] Generiram + deployam stats dashboard (cloud)..."
+  ./scripts/sync-stats.sh --cloud --deploy \
+    || echo "[cron] WARN: stats sync/deploy pao/nije konfiguriran (nastavljam)."
+fi
+
 echo "[cron $(date '+%Y-%m-%d %H:%M:%S')] sync-cron gotov (rc=$RC)"
 exit $RC
