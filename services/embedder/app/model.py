@@ -56,6 +56,16 @@ class Embedder:
             convert_to_numpy=True,
             show_progress_bar=False,
         )
+        # MPS: PyTorch cache-a GPU buffere neograničeno → footprint naraste na
+        # ~20 GB (od 24 unified) i sruši allocator (SIGSEGV). Otpusti cache nakon
+        # svakog batcha da footprint ostane nizak. Vidi lessons-mps-embedder-segfault.
+        if self.device == "mps":
+            try:
+                import torch
+
+                torch.mps.empty_cache()
+            except Exception:  # torch bez mps builda — no-op
+                pass
         return vectors.tolist()
 
 

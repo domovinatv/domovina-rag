@@ -53,7 +53,9 @@ LOCAL_CH_PASS="${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD nije set u .env}"
 # Diskovi koje ETL skenira (producer raspršuje kanale preko više diskova preko
 # symlinkova; svaki disk mora ići eksplicitno — vidi lessons-etl-data-source-symlinks)
 DATA_DIRS=(${DATA_SOURCE_DIRS:-/Volumes/DOMOVINA1TB/fetch_domovina_tv_output /Volumes/DOMOVINA2TB/fetch_domovina_tv_output})
-ETL_BATCH="${ETL_BATCH_SIZE:-4}"
+# batch=2 (ne 4): MPS GPU allocator segfaulta pod unified-memory pritiskom
+# (Docker drži 14/24 GB); manji batch = manji attention buffer. Vidi sync-cron.sh.
+ETL_BATCH="${ETL_BATCH_SIZE:-2}"
 
 DRY_RUN=0
 SKIP_ETL=0

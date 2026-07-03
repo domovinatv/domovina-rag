@@ -24,11 +24,14 @@ if [ ! -f .venv/bin/python ]; then
   exit 1
 fi
 
-# MPS GPU + povišen text limit (matchira compose embedder env).
+# MPS GPU. MAX_TEXT_LEN=8192 i manji batch: bge-m3 attention je O(n²) i PyTorch
+# MPS cache-a buffere → footprint je znao narasti na ~20 GB (od 24 unified) i
+# segfaultati allocator. Uz to model.py sad zove torch.mps.empty_cache() nakon
+# svakog batcha. Vidi lessons-mps-embedder-segfault + docs/mps-embedder-memory.md.
 export EMBEDDER_DEVICE=mps
 export EMBEDDER_MODEL=BAAI/bge-m3
-export EMBEDDER_MAX_TEXT_LEN=32768
-export EMBEDDER_BATCH_SIZE=32
+export EMBEDDER_MAX_TEXT_LEN=8192
+export EMBEDDER_BATCH_SIZE=8
 
 # Logging level (INFO default; DEBUG za debug).
 export LOG_LEVEL=${LOG_LEVEL:-INFO}
