@@ -85,7 +85,9 @@ flowchart TD
     MEILILOCAL --> MEILICLOUD["sync-meili.sh --cloud<br/>(cloud re-index)"]
     MEILICLOUD --> SPKLOCAL["sync-speakers.sh<br/>(lokalni person hub)"]
     SPKLOCAL --> SPKCLOUD["sync-speakers.sh --cloud<br/>(cloud person hub)"]
-    SPKCLOUD --> DONE(["log + exit"])
+    SPKCLOUD --> PMLOCAL["sync-person-mentions.sh<br/>(lokalni person_mentions)"]
+    PMLOCAL --> PMCLOUD["sync-person-mentions.sh --cloud<br/>(cloud person_mentions)"]
+    PMCLOUD --> DONE(["log + exit"])
     RC -- ne --> DONE
 
     style SYNC fill:#1a365d,color:#fff
@@ -93,7 +95,13 @@ flowchart TD
     style MEILICLOUD fill:#553c1a,color:#fff
     style SPKLOCAL fill:#1a3d3d,color:#fff
     style SPKCLOUD fill:#1a3d3d,color:#fff
+    style PMLOCAL fill:#1a3d3d,color:#fff
+    style PMCLOUD fill:#1a3d3d,color:#fff
 ```
+
+> **person_mentions** je poseban: derivat je CH `episode_mentions`, ali izvor je
+> UVIJEK **lokalni** CH (`summary.mentioned_people` živi u lokalnom summary.json,
+> nikad se ne push-a u cloud CH), pa i `--cloud` mod čita lokalni CH a piše cloud PG.
 
 Svaki derivat-korak je **best-effort** (WARN, ne ruši cron) i pokreće se samo ako
 je CH delta uspjela (`rc == 0`) — nema smisla re-indeksirati na temelju polovične
@@ -205,7 +213,8 @@ flowchart LR
         CH["ClickHouse delta<br/>sync-incremental.sh"]
         ME["Meili re-index<br/>sync-meili.sh ×2"]
         SP["Person hub<br/>sync-speakers.sh ×2"]
-        CH --> ME --> SP
+        PM["person_mentions<br/>sync-person-mentions.sh ×2"]
+        CH --> ME --> SP --> PM
     end
     subgraph MANUAL["RUČNO / na potrebu"]
         MCPD["MCP server (kod)<br/>Coolify Redeploy"]
@@ -221,6 +230,7 @@ flowchart LR
 | **ClickHouse** (semantika) | dnevno 04:00, delta | launchd → `sync-incremental.sh` → SSH push |
 | **Meilisearch** (keyword) | dnevno 04:00, nakon CH | launchd → `sync-meili.sh --local && --cloud` |
 | **Person hub** (PG speakers) | dnevno 04:00, nakon CH | launchd → `sync-speakers.sh --local && --cloud` |
+| **person_mentions** (PG, "spominje se u") | dnevno 04:00, nakon speakers | launchd → `sync-person-mentions.sh --local && --cloud` (izvor uvijek lokalni CH) |
 | **MCP server** (kod) | ručni Coolify redeploy* | Coolify Application (rolling, zero-downtime) |
 | **Frontend** (domovina.ai) | ručno | `./scripts/deploy.sh` (wasm + wrangler Pages) |
 
@@ -245,6 +255,8 @@ cd ~/git/domovinatv/domovina-rag
 ./scripts/sync-meili.sh --cloud        # cloud Meili re-index
 ./scripts/sync-speakers.sh             # lokalni person hub (PG speakers)
 ./scripts/sync-speakers.sh --cloud     # cloud person hub
+./scripts/sync-person-mentions.sh          # lokalni person_mentions ("spominje se u")
+./scripts/sync-person-mentions.sh --cloud  # cloud person_mentions (izvor: lokalni CH)
 ```
 
 ---
@@ -309,9 +321,10 @@ na samom VPS-u (veći zahvat, budući sprint).
 
 ## Vezani dokumenti
 
-- `scripts/sync-incremental.sh`, `scripts/sync-meili.sh`, `scripts/sync-speakers.sh`, `scripts/sync-cron.sh`
+- `scripts/sync-incremental.sh`, `scripts/sync-meili.sh`, `scripts/sync-speakers.sh`, `scripts/sync-person-mentions.sh`, `scripts/sync-cron.sh`
 - `scripts/emit_speakers_sql.py` — CH TSV → PG UPSERT SQL (person hub)
-- `docs/person-hub.md` — person hub feature (govornik profili)
+- `scripts/emit_person_mentions_sql.py` — CH `episode_mentions` TSV → PG full-refresh SQL (person_mentions)
+- `docs/person-hub.md` — person hub feature (govornik profili + "spominje se u")
 - `infra/launchd/tv.domovina.rag.sync.plist` — raspored
 - `meili-keys-and-frontend.md` — Meili ključevi + frontend wiring
 - `coolify-meili-application.md` — Meili deploy

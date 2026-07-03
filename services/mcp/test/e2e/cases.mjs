@@ -128,6 +128,32 @@ export default [
       "kanalima pokazuje njezin matični kanal + gostovanja.",
   },
 
+  {
+    id: "person-hub-mentions",
+    category: "person",
+    requires: "multi_channel",
+    user_prompt:
+      "U kojim se epizodama SPOMINJE Ante Čaljkušić (a da nije govornik)?",
+    tool_call: {
+      name: "get_person",
+      arguments: { slug: "ante-caljkusic" },
+    },
+    must_have: {
+      // Spomen u epizodi gdje NE govori (DR9rrCDpnTA: govore Voditelj + Vanessa Mioč).
+      object_field_path_number_min: ["mention_episode_count", 1],
+      object_array_field_includes_object_with_field_value: [
+        "mentions", "youtube_id", "DR9rrCDpnTA",
+      ],
+      // Govori ima prednost: mention-epizoda NE smije biti i u episodes[].
+      object_array_field_excludes_object_with_field_value: [
+        "episodes", "youtube_id", "DR9rrCDpnTA",
+      ],
+    },
+    expected_answer:
+      "Sekcija 'Spominje se u' navodi DR9rrCDpnTA (koncert) gdje se Ante " +
+      "Čaljkušić spominje ali ne govori; deep_link je /v/{id} bez /t/.",
+  },
+
   // ───────────────── ŠTO JE X REKAO O Y ──────────────────────────
 
   {

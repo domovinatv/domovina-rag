@@ -172,3 +172,33 @@ def episode_meta_from_first_chunk(jsonl: JsonlFile) -> EpisodeMeta:
         title=meta.get("title"),
         upload_date=meta.get("upload_date"),
     )
+
+
+# Producer summary sidecar leži pored JSONL-a s istim basename-om:
+#   {basename}.rag_combined.jsonl  ↔  {basename}.wav.canary.summary.json
+_SUMMARY_SUFFIX = ".wav.canary.summary.json"
+
+
+def read_mentioned_people(jsonl: JsonlFile) -> tuple[list[str], Optional[str]]:
+    """Vrati `(mentioned_people, title_hr)` iz sibling summary.json-a.
+
+    Osoba se u epizodi može SPOMINJATI (`summary.mentioned_people[]`) a da ne
+    GOVORI (nije diarizirani speaker). To polje NIJE u JSONL/CH — živi samo u
+    producerovom `{basename}.wav.canary.summary.json`. Ako sidecar ne postoji ili
+    je nevaljan, vrati `([], None)` — mentions su best-effort, ne smiju rušiti ingest.
+    """
+    summary_path = jsonl.path.parent / (jsonl.basename + _SUMMARY_SUFFIX)
+    if not summary_path.exists():
+        return [], None
+    try:
+        with summary_path.open("r", encoding="utf-8") as f:
+            doc = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return [], None
+    summary = doc.get("summary") if isinstance(doc, dict) else None
+    if not isinstance(summary, dict):
+        return [], None
+    people = summary.get("mentioned_people") or []
+    names = [str(p).strip() for p in people if isinstance(p, str) and p.strip()]
+    title = summary.get("title_hr")
+    return names, (str(title) if title else None)

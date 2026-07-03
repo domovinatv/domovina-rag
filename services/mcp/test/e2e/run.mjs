@@ -259,6 +259,13 @@ const ASSERTIONS = {
       ? null
       : `expected array field '${field}' to include object with ${subField}='${value}'`,
 
+  object_array_field_excludes_object_with_field_value: (p, [field, subField, value]) =>
+    p && Array.isArray(p[field]) && !p[field].some(
+      (item) => item && typeof item === "object" && item[subField] === value,
+    )
+      ? null
+      : `expected array field '${field}' to NOT include object with ${subField}='${value}'`,
+
   every_result_has_field: (rows, field) => {
     if (!Array.isArray(rows)) return `payload is not an array`;
     const missing = rows.filter((r) => !(field in r));

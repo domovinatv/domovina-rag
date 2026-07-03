@@ -96,6 +96,19 @@ if [ "$RC" -eq 0 ]; then
   ./scripts/sync-speakers.sh --cloud || echo "[cron] WARN: cloud speakers populate pao/nije deployan (nastavljam)."
 fi
 
+# ─── 6b. Re-populate person_mentions ("Spominje se u" sekcija person huba) ─────
+# person_mentions je derivat CH `episode_mentions` (koji ETL puni iz producerovog
+# summary.mentioned_people). Kad novi ingest doda spomene, tablica treba refresh
+# inače /api/person/{slug} ne prikaže sekciju "Spominje se u". Izvor je UVIJEK
+# lokalni CH (summary.json postoji samo lokalno), pa i --cloud čita lokalni CH.
+# VAŽNO: novi CH-derivat → svoj korak ovdje (docs/data-refresh-flow.md).
+if [ "$RC" -eq 0 ]; then
+  echo "[cron] Re-populiram person_mentions (lokalni PG)..."
+  ./scripts/sync-person-mentions.sh || echo "[cron] WARN: lokalni person_mentions populate pao (nastavljam)."
+  echo "[cron] Re-populiram person_mentions (cloud PG)..."
+  ./scripts/sync-person-mentions.sh --cloud || echo "[cron] WARN: cloud person_mentions populate pao/nije deployan (nastavljam)."
+fi
+
 # ─── 7. Osvježi javni stats dashboard (derivat CH-a) ──────────────────────────
 # stats.json je derivat CH-a (agregati nad rag_chunks) kao Meili i speakers. Puni
 # ga sync-stats.sh i deploya na CF Pages (stats.domovina.ai). Consumer je zaseban

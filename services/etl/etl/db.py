@@ -228,6 +228,26 @@ class ChClient:
             for row in result.result_rows
         ]
 
+    def insert_mentions(self, rows: Sequence[Sequence]) -> None:
+        """Batch insert u `episode_mentions` (jedan red po youtube_id+person).
+
+        Idempotentno — ReplacingMergeTree(inserted_at) ORDER BY (youtube_id, person).
+        Kolone: youtube_id, channel, upload_date, title, person.
+        """
+        if not rows:
+            return
+        self.client.insert(
+            "episode_mentions",
+            rows,
+            column_names=[
+                "youtube_id",
+                "channel",
+                "upload_date",
+                "title",
+                "person",
+            ],
+        )
+
     def insert_chunks(self, rows: Sequence[Sequence]) -> None:
         """Batch insert u `rag_chunks`. Re-insert je idempotentan jer je tablica
         ReplacingMergeTree na `inserted_at` — najnoviji insert za isti

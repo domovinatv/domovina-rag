@@ -10,7 +10,13 @@ from typing import Iterator
 
 from .db import ChClient, PgClient
 from .embed import EmbedderClient
-from .sources import Chunk, JsonlFile, episode_meta_from_first_chunk, stream_chunks
+from .sources import (
+    Chunk,
+    JsonlFile,
+    episode_meta_from_first_chunk,
+    read_mentioned_people,
+    stream_chunks,
+)
 
 
 log = logging.getLogger("etl.load")
@@ -115,6 +121,17 @@ def load_file(
             )
         ch.insert_chunks(rows)
         inserted += len(rows)
+
+    # Mentions: osoba SPOMENUTA u epizodi (summary.mentioned_people[]), ne nužno
+    # govornik. Best-effort — ako sidecar summary.json fali, samo preskoči.
+    people, title_hr = read_mentioned_people(jsonl)
+    if people:
+        mention_title = title_hr or meta.title or ""
+        ch.insert_mentions(
+            [[meta.youtube_id, channel, upload_date, mention_title, person]
+             for person in people]
+        )
+        log.info("  → %d spomenutih osoba (mentions)", len(people))
 
     pg.update_sync_state(
         source_name="jsonl_ingest",

@@ -65,6 +65,24 @@ CREATE TABLE IF NOT EXISTS speakers (
 CREATE INDEX IF NOT EXISTS idx_speakers_slug ON speakers(slug);
 CREATE INDEX IF NOT EXISTS idx_speakers_aliases ON speakers USING gin (aliases);
 
+-- ─── Person mentions ("spominje se u", ne nužno govori) ─────
+-- Derivat CH `episode_mentions` (koji je pak izveden iz producerovog
+-- summary.mentioned_people). Puni scripts/sync-person-mentions.sh (full-refresh:
+-- DELETE + INSERT). Slug se računa istim ASCII-fold algoritmom kao speakers.slug,
+-- pa se whole-person joina u person hub. /api/person/{slug} čita ovu tablicu i
+-- izbaci epizode u kojima osoba GOVORI (govori ima prednost). Vidi migrations/003.
+CREATE TABLE IF NOT EXISTS person_mentions (
+    slug            TEXT NOT NULL,             -- ASCII-fold imena (isti algoritam kao speakers.slug)
+    youtube_id      TEXT NOT NULL,
+    channel         TEXT NOT NULL,
+    title           TEXT,
+    upload_date     DATE,
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (slug, youtube_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_person_mentions_slug ON person_mentions(slug);
+
 -- ─── Auto-update updated_at ─────────────────────────────────
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN

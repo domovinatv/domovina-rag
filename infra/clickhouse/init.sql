@@ -52,6 +52,23 @@ CREATE TABLE IF NOT EXISTS speaker_voice_signatures (
 ) ENGINE = ReplacingMergeTree(inserted_at)
 ORDER BY (speaker_id, episode_id, model_key);
 
+-- ─── Episode mentions (osoba se SPOMINJE u epizodi, ne nužno govori) ─────────
+-- Izvor: producerov `{basename}.wav.canary.summary.json` → `summary.mentioned_people[]`
+-- (array imena). NIJE u rag_chunks jer je per-epizoda, ne per-chunk. Puni ju ETL
+-- (load.py hook + `python -m etl mentions` backfill) iz sibling summary.json-a.
+-- Derivat person_mentions (PG) se izvodi odavde — vidi scripts/sync-person-mentions.sh.
+-- Ostaje LOKALNO (summary.json postoji samo lokalno); cloud PG se puni čitanjem
+-- OVE lokalne tablice, ne preko CH delta push-a.
+CREATE TABLE IF NOT EXISTS episode_mentions (
+    youtube_id      String,
+    channel         LowCardinality(String),
+    upload_date     Date,
+    title           String,                    -- summary.title_hr (fallback metadata.title)
+    person          String,                    -- SIROVO ime iz mentioned_people; slug računa Python
+    inserted_at     DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(inserted_at)
+ORDER BY (youtube_id, person);
+
 -- ─── Daily aggregates (materialized view, Faza 2) ──────────
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_channel_daily
 ENGINE = SummingMergeTree

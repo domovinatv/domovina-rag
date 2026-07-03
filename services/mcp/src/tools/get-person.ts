@@ -63,6 +63,16 @@ export interface PersonEpisode {
   deep_link: string;
 }
 
+// Epizoda u kojoj se osoba SPOMINJE (summary.mentioned_people) ali NE govori.
+// Bez `first_ts` (nema speaking-timestamp) → deep_link bez /t/.
+export interface PersonMention {
+  youtube_id: string;
+  title: string | null;
+  channel: string;
+  upload_date: string;
+  deep_link: string;
+}
+
 export interface PersonHub {
   name: string;
   slug: string;
@@ -73,6 +83,52 @@ export interface PersonHub {
   channels: { channel: string; count: number }[];
   episodes: PersonEpisode[];
   timeline: { month: string; count: number }[];
+  // Epizode u kojima se osoba spominje ali ne govori (disjunktno od `episodes`).
+  mentions: PersonMention[];
+  mention_episode_count: number;
+}
+
+
+interface MentionRow {
+  youtube_id: string;
+  title: string | null;
+  channel: string;
+  upload_date: string;
+}
+
+
+// Epizode u kojima se osoba SPOMINJE (person_mentions, izvedeno iz
+// summary.mentioned_people). Isključi `excludeIds` (epizode u kojima GOVORI —
+// govori ima prednost, ne dupliciramo). Sort: najnovije prvo, kao episodes[].
+async function fetchMentions(
+  pg: Pool,
+  slug: string,
+  excludeIds: Set<string>,
+): Promise<PersonMention[]> {
+  let rows: MentionRow[];
+  try {
+    const res = await pg.query<MentionRow>(
+      `SELECT youtube_id, title, channel, to_char(upload_date, 'YYYY-MM-DD') AS upload_date
+       FROM person_mentions
+       WHERE slug = $1
+       ORDER BY upload_date DESC NULLS LAST, youtube_id`,
+      [slug],
+    );
+    rows = res.rows;
+  } catch {
+    // person_mentions tablica možda još ne postoji (pre-migracija) → prazno,
+    // ne ruši hub. Backward-compat.
+    return [];
+  }
+  return rows
+    .filter((r) => !excludeIds.has(r.youtube_id))
+    .map((r) => ({
+      youtube_id: r.youtube_id,
+      title: r.title,
+      channel: r.channel,
+      upload_date: r.upload_date,
+      deep_link: `https://domovina.ai/v/${r.youtube_id}`,
+    }));
 }
 
 
@@ -123,7 +179,9 @@ export async function getPerson(
   // aliases dolazi kao jsonb → već je JS array of string.
   const aliases = Array.isArray(person.aliases) ? person.aliases : [];
   if (aliases.length === 0) {
-    // Osoba bez aliasa (ručni red bez CH povezivanja) → prazan hub, ne crash.
+    // Osoba bez aliasa (ručni red bez CH povezivanja) → nema govora, ali može
+    // imati spomene. Prazan govor-hub + eventualni mentions, ne crash.
+    const mentions = await fetchMentions(deps.pg, person.slug, new Set());
     return {
       name: person.canonical_name,
       slug: person.slug,
@@ -133,6 +191,8 @@ export async function getPerson(
       channels: [],
       episodes: [],
       timeline: [],
+      mentions,
+      mention_episode_count: mentions.length,
     };
   }
 
@@ -193,6 +253,11 @@ export async function getPerson(
     .map(([month, count]) => ({ month, count }))
     .sort((a, b) => a.month.localeCompare(b.month));
 
+  // 4. Mentions: epizode gdje se osoba SPOMINJE ali NE govori. Izbaci sve
+  //    youtube_id koji su već u episodes[] (govori ima prednost).
+  const speakingIds = new Set(episodes.map((e) => e.youtube_id));
+  const mentions = await fetchMentions(deps.pg, person.slug, speakingIds);
+
   return {
     name: person.canonical_name,
     slug: person.slug,
@@ -202,5 +267,7 @@ export async function getPerson(
     channels,
     episodes,
     timeline,
+    mentions,
+    mention_episode_count: mentions.length,
   };
 }

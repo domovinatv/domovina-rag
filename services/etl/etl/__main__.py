@@ -13,10 +13,12 @@ import os
 import sys
 from pathlib import Path
 
+import datetime as _dt
+
 from .db import ChClient, ChConfig, PgClient, PgConfig
 from .embed import EmbedderClient
 from .load import LoadStats, load_file
-from .sources import discover_jsonl
+from .sources import discover_jsonl, episode_meta_from_first_chunk, read_mentioned_people
 from .speakers import build_persons, _load_seed
 
 
@@ -187,6 +189,60 @@ def cmd_retry_missing(args: argparse.Namespace) -> int:
         pg.close()
 
 
+def cmd_mentions(args: argparse.Namespace) -> int:
+    """Backfill `episode_mentions` (CH) iz sibling summary.json-a za već ingestirane epizode.
+
+    Novi ingest puni episode_mentions inline (load.py hook). Ova komanda pokrije
+    POSTOJEĆE epizode koje su ingestirane prije nego je hook postojao. Restrikcija
+    na youtube_id koji SU u rag_chunks — spominjemo samo epizode koje poslužujemo.
+    Idempotentno (ReplacingMergeTree). Pokreni per-disk kao ingest (DATA_SOURCE_DIR).
+    """
+    input_dir = Path(args.input).resolve()
+    files = discover_jsonl(input_dir, channel_filter=args.channel)
+    log.info("Pronađeno %d JSONL fajlova u %s", len(files), input_dir)
+
+    ch = ChClient(ChConfig(url=_build_ch_url()))
+    try:
+        indexed = ch.indexed_youtube_ids()
+        log.info("CH ima %d ingestiranih epizoda", len(indexed))
+        targets = [f for f in files if f.youtube_id in indexed]
+        if args.limit:
+            targets = targets[: args.limit]
+        log.info("Backfill mentions za %d epizoda", len(targets))
+
+        episodes_with = 0
+        total_rows = 0
+        for f in targets:
+            people, title_hr = read_mentioned_people(f)
+            if not people:
+                continue
+            meta = episode_meta_from_first_chunk(f)
+            upload_date_str = meta.upload_date or "1970-01-01"
+            try:
+                upload_date = _dt.date.fromisoformat(upload_date_str)
+            except ValueError:
+                upload_date = _dt.date(1970, 1, 1)
+            title = title_hr or meta.title or ""
+            rows = [
+                [meta.youtube_id, meta.channel_slug, upload_date, title, person]
+                for person in people
+            ]
+            if args.dry_run:
+                print(f"  {f.youtube_id}  {len(people):>3} osoba  {title[:60]}")
+            else:
+                ch.insert_mentions(rows)
+            episodes_with += 1
+            total_rows += len(rows)
+
+        log.info(
+            "Done: %d epizoda sa spomenima, %d mention-redova%s",
+            episodes_with, total_rows, " (dry-run)" if args.dry_run else "",
+        )
+    finally:
+        ch.close()
+    return 0
+
+
 def cmd_speakers(args: argparse.Namespace) -> int:
     """Populate `speakers` "person hub" iz distinct CH govornika.
 
@@ -285,6 +341,16 @@ def main(argv: list[str] | None = None) -> int:
     p_sp.add_argument("--dry-run", action="store_true", help="Samo ispiši, ne piši u PG")
     p_sp.add_argument("--limit", type=int, default=0, help="Dry-run: prikaži prvih N (default 40)")
     p_sp.set_defaults(func=cmd_speakers)
+
+    p_men = sub.add_parser(
+        "mentions",
+        help="Backfill 'episode_mentions' (CH) iz summary.json za već ingestirane epizode",
+    )
+    p_men.add_argument("--input", required=True, help="Korijenski dir s {channel}/*.rag_combined.jsonl")
+    p_men.add_argument("--channel", default=None, help="Filtriraj na jedan kanal slug")
+    p_men.add_argument("--limit", type=int, default=0, help="Procesiraj samo prvih N epizoda")
+    p_men.add_argument("--dry-run", action="store_true", help="Samo ispiši, ne piši u CH")
+    p_men.set_defaults(func=cmd_mentions)
 
     p_retry = sub.add_parser(
         "retry-missing",
