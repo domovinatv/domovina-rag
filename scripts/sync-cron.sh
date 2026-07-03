@@ -80,5 +80,18 @@ if [ "$RC" -eq 0 ]; then
   ./scripts/sync-meili.sh --cloud || echo "[cron] WARN: cloud Meili re-index pao/nije deployan (nastavljam)."
 fi
 
+# ─── 6. Re-populate "person hub" (PG speakers) ────────────────────────────────
+# speakers je derivat CH-a (distinct govornici → slug + aliases). Kad CH dobije
+# nove epizode/govornike, tablica treba refresh inače /api/person/{slug} vraća
+# stare/nedostajuće profile. Idempotentno (UPSERT+prune), jeftino (~10s).
+# VAŽNO: svaka nova CH-derivat tablica (Meili, speakers, …) MORA dobiti svoj
+# korak ovdje — vidi docs/data-refresh-flow.md § "Nova derivat-tablica".
+if [ "$RC" -eq 0 ]; then
+  echo "[cron] Re-populiram person hub (lokalni PG)..."
+  ./scripts/sync-speakers.sh || echo "[cron] WARN: lokalni speakers populate pao (nastavljam)."
+  echo "[cron] Re-populiram person hub (cloud PG)..."
+  ./scripts/sync-speakers.sh --cloud || echo "[cron] WARN: cloud speakers populate pao/nije deployan (nastavljam)."
+fi
+
 echo "[cron $(date '+%Y-%m-%d %H:%M:%S')] sync-cron gotov (rc=$RC)"
 exit $RC

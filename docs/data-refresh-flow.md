@@ -5,8 +5,13 @@ producera do svježeg rezultata u semantičkoj (ClickHouse) i keyword (Meilisear
 pretrazi na cloudu.
 
 > **TL;DR:** Jedan dnevni launchd job na Macu (`04:00`) povuče nove epizode,
-> embeda ih lokalno na MPS GPU, i pusha deltu u cloud ClickHouse + re-indeksira
-> cloud Meilisearch. Cloud samo poslužuje — ne računa embeddinge.
+> embeda ih lokalno na MPS GPU, i pusha deltu u cloud ClickHouse, pa re-indeksira
+> cloud Meilisearch i re-populira cloud "person hub" (PG speakers). Cloud samo
+> poslužuje — ne računa embeddinge.
+>
+> **⚠️ Kad dodaješ novu tablicu izvedenu iz ClickHouse-a** (kao Meili ili
+> speakers), MORAŠ joj dodati korak u `sync-cron.sh` — inače je svježa samo
+> lokalno, a cloud zaostaje. Vidi § **9. Nova derivat-tablica — checklist**.
 
 ---
 
@@ -78,13 +83,21 @@ flowchart TD
     SYNC["<b>sync-incremental.sh</b><br/>(ClickHouse delta)"] --> RC{rc == 0?}
     RC -- da --> MEILILOCAL["sync-meili.sh<br/>(lokalni re-index)"]
     MEILILOCAL --> MEILICLOUD["sync-meili.sh --cloud<br/>(cloud re-index)"]
-    MEILICLOUD --> DONE(["log + exit"])
+    MEILICLOUD --> SPKLOCAL["sync-speakers.sh<br/>(lokalni person hub)"]
+    SPKLOCAL --> SPKCLOUD["sync-speakers.sh --cloud<br/>(cloud person hub)"]
+    SPKCLOUD --> DONE(["log + exit"])
     RC -- ne --> DONE
 
     style SYNC fill:#1a365d,color:#fff
     style MEILILOCAL fill:#553c1a,color:#fff
     style MEILICLOUD fill:#553c1a,color:#fff
+    style SPKLOCAL fill:#1a3d3d,color:#fff
+    style SPKCLOUD fill:#1a3d3d,color:#fff
 ```
+
+Svaki derivat-korak je **best-effort** (WARN, ne ruši cron) i pokreće se samo ako
+je CH delta uspjela (`rc == 0`) — nema smisla re-indeksirati na temelju polovične
+baze.
 
 Preduvjeti za uspješan run: **Mac budan u 04:00** (ili job krene na buđenju —
 launchd `StartCalendarInterval` semantika) i **eksterni diskovi mountani**
@@ -191,17 +204,15 @@ flowchart LR
     subgraph DAILY["DNEVNO — launchd 04:00 (Mac)"]
         CH["ClickHouse delta<br/>sync-incremental.sh"]
         ME["Meili re-index<br/>sync-meili.sh ×2"]
-        CH --> ME
+        SP["Person hub<br/>sync-speakers.sh ×2"]
+        CH --> ME --> SP
     end
-    subgraph ONPUSH["NA GIT PUSH — Coolify auto"]
-        MCPD["MCP server<br/>(rolling, zero-downtime)"]
-    end
-    subgraph MANUAL["RUČNO"]
+    subgraph MANUAL["RUČNO / na potrebu"]
+        MCPD["MCP server (kod)<br/>Coolify Redeploy"]
         FE["Frontend domovina.ai<br/>./scripts/deploy.sh<br/>(flutter wasm + wrangler)"]
     end
 
     style DAILY fill:#22543d,color:#fff
-    style ONPUSH fill:#1a365d,color:#fff
     style MANUAL fill:#553c1a,color:#fff
 ```
 
@@ -209,8 +220,13 @@ flowchart LR
 |---|---|---|
 | **ClickHouse** (semantika) | dnevno 04:00, delta | launchd → `sync-incremental.sh` → SSH push |
 | **Meilisearch** (keyword) | dnevno 04:00, nakon CH | launchd → `sync-meili.sh --local && --cloud` |
-| **MCP server** (kod) | na `git push` | Coolify auto-rebuild (rolling) |
+| **Person hub** (PG speakers) | dnevno 04:00, nakon CH | launchd → `sync-speakers.sh --local && --cloud` |
+| **MCP server** (kod) | ručni Coolify redeploy* | Coolify Application (rolling, zero-downtime) |
 | **Frontend** (domovina.ai) | ručno | `./scripts/deploy.sh` (wasm + wrangler Pages) |
+
+\* MCP je Coolify **Application** iz Public Repository bez push-webhooka → `git
+push` NE deploya sam. Klikni **Redeploy** u Coolify UI (ili spoji GitHub App za
+auto-deploy). `/health` verzija je pouzdan signal je li novi kod živ.
 
 ---
 
@@ -227,7 +243,42 @@ cd ~/git/domovinatv/domovina-rag
 ./scripts/sync-incremental.sh --dry-run  # samo izračun delte, bez pisanja
 ./scripts/sync-meili.sh                # lokalni Meili re-index
 ./scripts/sync-meili.sh --cloud        # cloud Meili re-index
+./scripts/sync-speakers.sh             # lokalni person hub (PG speakers)
+./scripts/sync-speakers.sh --cloud     # cloud person hub
 ```
+
+---
+
+## 9. Nova derivat-tablica — checklist
+
+**Derivat-tablica** = svaka tablica/index čiji je JEDINI izvor istine ClickHouse
+`rag_chunks` (Meili `episodes`, PG `speakers`, buduće analitičke tablice…). Ona
+NIJE dio CH delta push-a, pa se ne osvježava sama — treba joj vlastiti korak u
+dnevnom sync-u. **Ako to zaboraviš, tablica je svježa samo lokalno i cloud
+tiho zaostaje** (točno bug koji je person hub imao: kod deployan, ali
+`/api/person/{slug}` je 404-ao dok cloud tablica nije populirana).
+
+Kad dodaješ novu derivat-tablicu, prođi:
+
+1. **Populate skripta** koja čita CH i piše u ciljnu bazu, idempotentno
+   (UPSERT + prune ili full re-index). Uzor: `sync-speakers.sh` (dependency-free:
+   CH preko `clickhouse-client`, transform plain `python3`, PG preko `psql`, sve
+   kroz `docker exec` / `ssh docker exec` — bez venva i tunela) ili `sync-meili.sh`.
+2. **`--cloud` mod** u istoj skripti. Cloud PG/CH container se nalazi po Coolify
+   **stack-UUID-u** (dijele ga svi containeri istog resursa: `clickhouse-<UUID>-…`,
+   `postgres-<UUID>-…`) — NE po golom `name=postgres` (na hostu ima više PG-ova:
+   supabase, coolify, drugi projekti).
+3. **Schema bootstrap** u skripti (`CREATE TABLE IF NOT EXISTS …`). Cloud PG je
+   inicijaliziran davno i `init.sql` se NE re-runa (vidi memory
+   `lessons-pg-init-sql-not-rerun`) — nova tablica NEĆE postojati na cloudu dok je
+   skripta sama ne kreira. Ne oslanjaj se na `init.sql` za cloud.
+4. **Korak u `sync-cron.sh`** poslije CH delte, iza `rc == 0` gate-a, best-effort
+   (`|| echo WARN`), i lokalni i `--cloud`.
+5. **Prvi populate ručno** (skripta odmah) da ne čekaš 04:00.
+6. **Ažuriraj ovaj dokument** (§2 dijagram, §6 tablicu frekvencija, §7 komande).
+
+Podsjetnik na ovo živi i u `CLAUDE.md` (§ "Data refresh") i u
+`scripts/sync-cron.sh` komentaru uz zadnji korak.
 
 ---
 
@@ -258,7 +309,9 @@ na samom VPS-u (veći zahvat, budući sprint).
 
 ## Vezani dokumenti
 
-- `scripts/sync-incremental.sh`, `scripts/sync-meili.sh`, `scripts/sync-cron.sh`
+- `scripts/sync-incremental.sh`, `scripts/sync-meili.sh`, `scripts/sync-speakers.sh`, `scripts/sync-cron.sh`
+- `scripts/emit_speakers_sql.py` — CH TSV → PG UPSERT SQL (person hub)
+- `docs/person-hub.md` — person hub feature (govornik profili)
 - `infra/launchd/tv.domovina.rag.sync.plist` — raspored
 - `meili-keys-and-frontend.md` — Meili ključevi + frontend wiring
 - `coolify-meili-application.md` — Meili deploy

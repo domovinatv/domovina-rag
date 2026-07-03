@@ -66,6 +66,25 @@ Ako se zatekneš u skripti za fetch/convert/transkripciju — **prebaci se u fet
 - **Nemoj** ubacivati API keys u repo — sve secrets idu kroz `.env` (ignored).
 - **Nemoj** premature dodavati frontend kod — primarni frontend je `domovina.ai` repo, ili Claude.ai kao MCP klijent.
 
+## Data refresh (cron sync)
+
+Cloud ne računa ništa — samo poslužuje. Dnevni launchd job (`04:00`,
+`scripts/sync-cron.sh`) na Macu embeda nove epizode i pusha deltu u cloud
+ClickHouse, pa osvježava sve **derivat-tablice** (izvedene iz `rag_chunks`):
+Meili `episodes`, PG `speakers` (person hub), … Puni pregled: `docs/data-refresh-flow.md`.
+
+**🔴 PRAVILO — kad dodaješ novu tablicu/index izveden iz ClickHouse-a, MORAŠ mu
+dodati korak u `scripts/sync-cron.sh` (lokalni + `--cloud`).** Inače je svjež
+samo lokalno, a cloud tiho zaostaje — i feature koji ga čita (npr.
+`/api/person/{slug}`) vraća 404/prazno u produkciji iako je kod deployan.
+Checklist (populate skripta, `--cloud` mod po Coolify stack-UUID-u, schema
+bootstrap jer se `init.sql` NE re-runa na cloudu, cron korak): vidi
+`docs/data-refresh-flow.md` § 9. Uzor: `scripts/sync-speakers.sh`.
+
+**MCP deploy nije automatski:** MCP je Coolify Application bez push-webhooka →
+`git push` ne deploya. Redeploy se klikne u Coolify UI; `/health` verzija
+potvrđuje da je novi kod živ.
+
 ## Initial scope (Faza 1)
 
 Minimal viable backend:
