@@ -6,6 +6,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ClickHouseClient } from "@clickhouse/client";
+import type { Pool } from "pg";
 
 import type { Config } from "./config.js";
 import type { EmbedderClient } from "./embedder.js";
@@ -41,12 +42,22 @@ import {
   CountMentionsInput,
   countMentionsJsonSchema,
 } from "./tools/count-mentions.js";
+import {
+  getPerson,
+  GetPersonInput,
+  getPersonJsonSchema,
+  PersonNotFoundError,
+} from "./tools/get-person.js";
 
 
 export interface ServerDeps {
   config: Config;
   ch: ClickHouseClient;
   embedder: EmbedderClient;
+  // PG je dostupan samo u HTTP transportu (OAuth state živi u PG-u). Tool-ovi
+  // koji trebaju PG (get_person) grade se samo kad je prisutan; u stdio dev-u
+  // (bez PG-a) vraćaju čistu "nedostupno" grešku.
+  pg?: Pool;
 }
 
 
@@ -59,6 +70,7 @@ const TOOL_NAMES = [
   "list_episodes",
   "get_episode",
   "count_mentions",
+  "get_person",
   "server_info",
 ] as const;
 
@@ -137,6 +149,17 @@ export function createServer(deps: ServerDeps): Server {
           "search_podcasts(limit=50). Use case: 'u kojem kanalu najviše Y', " +
           "'tko najčešće spominje Z', 'u kojem mjesecu najviše rasprava o W'.",
         inputSchema: countMentionsJsonSchema,
+      },
+      {
+        name: "get_person",
+        description:
+          "\"Person hub\": agregira SVE epizode u kojima jedna osoba GOVORI, " +
+          "cross-channel, iza stabilnog slug-a (npr. 'zeljka-markic', " +
+          "'don-tomislav-lukac'). Vraća statistiku (broj kanala/epizoda), " +
+          "raspodjelu po kanalima, mjesečni timeline i popis epizoda s deep " +
+          "linkovima. Granica: 'govori' (diarizirani speaker), NE 'spominje se " +
+          "u tekstu'. Slug je ASCII-fold imena (č→c, š→s, ž→z, đ→d, razmak→'-').",
+        inputSchema: getPersonJsonSchema,
       },
       {
         name: "server_info",
@@ -271,6 +294,47 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `count_mentions failed: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "get_person") {
+      if (!deps.pg) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "get_person nije dostupan u ovom transportu (PG nije spojen).",
+            },
+          ],
+        };
+      }
+      const parsed = GetPersonInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const hub = await getPerson(parsed.data, { ch: deps.ch, pg: deps.pg });
+        return {
+          content: [{ type: "text", text: JSON.stringify(hub, null, 2) }],
+        };
+      } catch (err) {
+        if (err instanceof PersonNotFoundError) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: `NOT_FOUND: ${err.message}` }],
+          };
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `get_person failed: ${msg}` }],
         };
       }
     }

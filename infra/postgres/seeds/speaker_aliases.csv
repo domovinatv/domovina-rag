@@ -1,0 +1,20 @@
+# Ručni alias-merge seed za "person hub".
+#
+# Format: slug,alias
+#   slug  = ciljni kanonski slug osobe (kako ga generira populate skripta iz
+#           najčešće varijante imena; provjeri stvarni slug u speakers tablici)
+#   alias = SIROVI CH speaker token koji treba kolapsirati u tu osobu
+#
+# Automatska normalizacija (populate skripta) već spaja case/honorifik varijante
+# (npr. "fra Stjepan Brčina" + "Fra Stjepan Brčina" → jedna osoba). Ovaj seed je
+# SAMO za merge-eve koje automatika NE može sigurno pogoditi:
+#   - samo-ime / nadimak ("Vinko" → "Vinko Mihaljević")
+#   - tipfeleri i alternativni zapisi imena
+#   - honorifik-manje varijante ("Damir Stojić" → "don-damir-stojic")
+#
+# Prazne linije i '#' komentari se ignoriraju. Idempotentno — re-run ne mijenja
+# slugove, samo dopuni aliases[]. Popuni ljudski; NE pogađaj automatski.
+#
+# ── Primjeri (odkomentiraj/uredi nakon što provjeriš stvarne slugove) ──
+# vinko-mihaljevic,Vinko
+# don-damir-stojic,Damir Stojić

@@ -109,7 +109,7 @@ async function main() {
   // Public deterministic search REST API (GET/POST /api/search) — NE-MCP,
   // bez OAuth-a, za domovina.ai frontend. CORS allow-lista + per-IP rate limit.
   if (config.publicSearchEnabled) {
-    mountPublicApi(app, { ch, embedder, config });
+    mountPublicApi(app, { ch, embedder, pg, config });
   }
 
   // Browser landing — GET / s Accept: text/html (NE application/json ili SSE)
@@ -249,7 +249,7 @@ async function main() {
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
         });
-        const server = createServer({ config, ch, embedder });
+        const server = createServer({ config, ch, embedder, pg });
         transport.onclose = () => {
           if (transport.sessionId) sessions.delete(transport.sessionId);
         };

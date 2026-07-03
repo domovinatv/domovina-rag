@@ -46,11 +46,14 @@ CREATE TABLE IF NOT EXISTS sync_state (
     meta            JSONB DEFAULT '{}'::jsonb
 );
 
--- ─── Speakers placeholder (Faza 3 full schema, vidi plan §15.4) ─
+-- ─── Speakers (Faza 3 voice-resolution shema; slug/aliases popunjava
+--     "person hub" populate skripta — vidi migrations/002_speakers_hub.sql) ─
 CREATE TABLE IF NOT EXISTS speakers (
     id                  BIGSERIAL PRIMARY KEY,
     canonical_name      TEXT NOT NULL,
-    aliases             JSONB DEFAULT '[]'::jsonb,
+    slug                TEXT UNIQUE,           -- public share URL /p/{slug}, ASCII-folded
+    avatar_url          TEXT,                  -- opcionalni CDN avatar (zasad NULL)
+    aliases             JSONB DEFAULT '[]'::jsonb,   -- svi raw CH speaker varijante ove osobe
     voice_embedding_avg VECTOR(192),
     channels            JSONB DEFAULT '[]'::jsonb,
     confidence          FLOAT DEFAULT 0.5,
@@ -58,6 +61,9 @@ CREATE TABLE IF NOT EXISTS speakers (
     created_at          TIMESTAMPTZ DEFAULT now(),
     updated_at          TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_speakers_slug ON speakers(slug);
+CREATE INDEX IF NOT EXISTS idx_speakers_aliases ON speakers USING gin (aliases);
 
 -- ─── Auto-update updated_at ─────────────────────────────────
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$

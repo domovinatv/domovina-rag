@@ -17,6 +17,7 @@ from .db import ChClient, ChConfig, PgClient, PgConfig
 from .embed import EmbedderClient
 from .load import LoadStats, load_file
 from .sources import discover_jsonl
+from .speakers import build_persons, _load_seed
 
 
 log = logging.getLogger("etl")
@@ -186,6 +187,72 @@ def cmd_retry_missing(args: argparse.Namespace) -> int:
         pg.close()
 
 
+def cmd_speakers(args: argparse.Namespace) -> int:
+    """Populate `speakers` "person hub" iz distinct CH govornika.
+
+    Idempotentno (UPSERT po slug-u). Slugovi su STABILNI kroz re-runove —
+    public share URL se ne smije mijenjati.
+    """
+    ch = ChClient(ChConfig(url=_build_ch_url()))
+    rows = ch.raw_speaker_rows()
+    ch.close()
+    log.info("CH: %d distinct raw govornika", len(rows))
+
+    seed = _load_seed(Path(args.seed).resolve() if args.seed else None)
+    if seed:
+        log.info("Seed: %d ručnih alias→slug mapiranja", len(seed))
+
+    result = build_persons(rows, seed=seed)
+    log.info(
+        "Izgrađeno %d osoba (skip: %d role-labeli, %d SPEAKER_XX; "
+        "%d varijanti spojeno, %d seed-merge-eva)",
+        len(result.persons),
+        result.skipped_role,
+        result.skipped_speaker_xx,
+        result.variants_merged,
+        result.seed_merges,
+    )
+
+    if args.dry_run:
+        print(f"\n{'slug':<34} {'chunks':>7}  {'alias':>5}  canonical")
+        print("-" * 78)
+        limit = args.limit or 40
+        for p in result.persons[:limit]:
+            print(
+                f"{p.slug:<34} {p.chunks:>7}  {len(p.aliases):>5}  "
+                f"{p.canonical_name}"
+            )
+        if len(result.persons) > limit:
+            print(f"... + {len(result.persons) - limit} više")
+        return 0
+
+    pg = PgClient(PgConfig(dsn=_build_pg_dsn()))
+    written = 0
+    try:
+        for p in result.persons:
+            pg.upsert_speaker(
+                canonical_name=p.canonical_name,
+                slug=p.slug,
+                aliases=p.aliases,
+                channels=sorted(p.channels),
+                confidence=p.confidence(),
+            )
+            written += 1
+        pruned = pg.prune_speakers([p.slug for p in result.persons])
+        pg.commit()
+        log.info(
+            "Upisano %d osoba, obrisano %d zastarjelih (speakers total: %d)",
+            written, pruned, pg.count_speakers(),
+        )
+    except Exception:
+        pg.rollback()
+        log.exception("Populate fail — rollback")
+        return 1
+    finally:
+        pg.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -205,6 +272,19 @@ def main(argv: list[str] | None = None) -> int:
 
     p_st = sub.add_parser("status", help="Prikaži sync_state")
     p_st.set_defaults(func=cmd_status)
+
+    p_sp = sub.add_parser(
+        "speakers",
+        help="Populate 'person hub' (speakers) iz distinct CH govornika",
+    )
+    p_sp.add_argument(
+        "--seed",
+        default="infra/postgres/seeds/speaker_aliases.csv",
+        help="CSV 'slug,alias' ručnih merge-eva (default: infra/postgres/seeds/...)",
+    )
+    p_sp.add_argument("--dry-run", action="store_true", help="Samo ispiši, ne piši u PG")
+    p_sp.add_argument("--limit", type=int, default=0, help="Dry-run: prikaži prvih N (default 40)")
+    p_sp.set_defaults(func=cmd_speakers)
 
     p_retry = sub.add_parser(
         "retry-missing",

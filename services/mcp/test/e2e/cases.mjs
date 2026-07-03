@@ -68,6 +68,66 @@ export default [
       "grupirana po kanalu, s deep linkovima.",
   },
 
+  // ───────────────── PERSON HUB (get_person) ─────────────────────
+  // get_person agregira SVE epizode u kojima osoba GOVORI, iza stabilnog slug-a.
+  // Ne treba embedder → radi i bez embedder servisa.
+
+  {
+    id: "person-hub-fra-nikola",
+    category: "person",
+    requires: "current_smoke",
+    user_prompt: "Pokaži mi profil govornika Fra Nikole Jurišića.",
+    tool_call: {
+      name: "get_person",
+      arguments: { slug: "fra-nikola-jurisic" },
+    },
+    must_have: {
+      object_field_path_number_min: ["episode_count", 1],
+      object_array_field_includes_object_with_field_value: ["episodes", "youtube_id", KNOWN_YT_ID],
+      object_has_array_field: "channels",
+      object_has_field_path: "timeline",
+    },
+    expected_answer:
+      "Profil s brojem epizoda, raspodjelom po kanalima, timelineom i popisom " +
+      "epizoda s deep linkovima na domovina.ai/v/{id}/t/{first_ts}.",
+  },
+
+  {
+    id: "person-hub-not-found",
+    category: "person",
+    requires: "current_smoke",
+    user_prompt: "Profil za nepostojeću osobu.",
+    tool_call: {
+      name: "get_person",
+      arguments: { slug: "ova-osoba-sigurno-ne-postoji-9931" },
+    },
+    must_have: {
+      tool_call_must_error: true,
+      error_contains_one_of: ["NOT_FOUND", "nije pronađena"],
+    },
+    expected_answer: "Klijent javlja da osoba s tim slug-om ne postoji (404).",
+  },
+
+  {
+    id: "person-hub-cross-channel",
+    category: "person",
+    requires: "multi_channel",
+    user_prompt: "U kojim sve kanalima gostuje Željka Markić?",
+    tool_call: {
+      name: "get_person",
+      arguments: { slug: "zeljka-markic" },
+    },
+    must_have: {
+      object_field_path_number_min: ["channel_count", 2],
+      object_array_field_includes_object_with_field_value: [
+        "channels", "channel", "zeljka_markic_i_narod_hr",
+      ],
+    },
+    expected_answer:
+      "Cross-channel profil: Željka Markić govori u više kanala; raspodjela po " +
+      "kanalima pokazuje njezin matični kanal + gostovanja.",
+  },
+
   // ───────────────── ŠTO JE X REKAO O Y ──────────────────────────
 
   {

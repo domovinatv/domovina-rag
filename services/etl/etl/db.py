@@ -107,6 +107,63 @@ class PgClient:
                 (source_name, last_basename, json.dumps(meta or {})),
             )
 
+    def upsert_speaker(
+        self,
+        *,
+        canonical_name: str,
+        slug: str,
+        aliases: Sequence[str],
+        channels: Sequence[str],
+        confidence: float,
+    ) -> None:
+        """UPSERT jedne osobe u "person hub" (speakers) po stabilnom slug-u.
+
+        Re-run ne mijenja slug (public share URL) niti `needs_review` (ljudsku
+        oznaku) — samo osvježi canonical/aliases/channels/confidence. aliases su
+        SIROVI CH speaker tokeni koje endpoint matcha protiv rag_chunks.speaker.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO speakers
+                    (canonical_name, slug, aliases, channels, confidence, needs_review)
+                VALUES (%s, %s, %s::jsonb, %s::jsonb, %s, TRUE)
+                ON CONFLICT (slug) DO UPDATE SET
+                    canonical_name = EXCLUDED.canonical_name,
+                    aliases        = EXCLUDED.aliases,
+                    channels       = EXCLUDED.channels,
+                    confidence     = EXCLUDED.confidence,
+                    updated_at     = now()
+                """,
+                (
+                    canonical_name,
+                    slug,
+                    json.dumps(list(aliases), ensure_ascii=False),
+                    json.dumps(list(channels), ensure_ascii=False),
+                    confidence,
+                ),
+            )
+
+    def prune_speakers(self, keep_slugs: Sequence[str]) -> int:
+        """Obriši hub-redove (slug IS NOT NULL) kojih više nema u svježem buildu.
+
+        Hub je 100% izveden iz CH → full-refresh semantika. Redovi bez slug-a
+        (buduća ručna/voice-resolucija, Faza 3) se NE diraju.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM speakers WHERE slug IS NOT NULL AND NOT (slug = ANY(%s))",
+                (list(keep_slugs),),
+            )
+            return cur.rowcount
+
+    def count_speakers(self) -> int:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM speakers")
+            row = cur.fetchone()
+            assert row is not None
+            return row["n"]
+
     def commit(self) -> None:
         self.conn.commit()
 
@@ -144,6 +201,32 @@ class ChClient:
         """
         result = self.client.query("SELECT DISTINCT youtube_id FROM rag_chunks")
         return {row[0] for row in result.result_rows}
+
+    def raw_speaker_rows(self) -> list[tuple[str, int, int, list[str]]]:
+        """Distinct raw govornici iz rag_chunks (nakon split po zarezu + trim).
+
+        Vraća (raw_token, chunk_count, episode_count, channels[]) po tokenu.
+        Comma-joined kolona ("Ante Čaljkušić,Dijana Brozović") se eksplodira
+        preko arrayJoin(splitByChar(',', ...)) — svaki token je zaseban red.
+        Filtriranje (SPEAKER_XX, role-labeli, prazno) radi Python strana.
+        """
+        result = self.client.query(
+            """
+            SELECT
+                trim(BOTH ' ' FROM arrayJoin(splitByChar(',', speaker))) AS raw,
+                count() AS chunks,
+                uniqExact(youtube_id) AS episodes,
+                arraySort(groupUniqArray(channel)) AS channels
+            FROM rag_chunks
+            GROUP BY raw
+            HAVING raw != ''
+            ORDER BY chunks DESC
+            """
+        )
+        return [
+            (row[0], int(row[1]), int(row[2]), list(row[3]))
+            for row in result.result_rows
+        ]
 
     def insert_chunks(self, rows: Sequence[Sequence]) -> None:
         """Batch insert u `rag_chunks`. Re-insert je idempotentan jer je tablica

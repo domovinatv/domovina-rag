@@ -11,14 +11,17 @@
 
 import type { ClickHouseClient } from "@clickhouse/client";
 import type { Express, Request, Response, NextFunction } from "express";
+import type { Pool } from "pg";
 
 import type { Config } from "./config.js";
 import type { EmbedderClient } from "./embedder.js";
 import { SearchPodcastsInput, searchPodcasts } from "./tools/search-podcasts.js";
+import { GetPersonInput, getPerson, PersonNotFoundError } from "./tools/get-person.js";
 
 export interface PublicApiDeps {
   ch: ClickHouseClient;
   embedder: EmbedderClient;
+  pg: Pool;
   config: Config;
 }
 
@@ -147,8 +150,41 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
   app.get("/api/search", cors, handleSearch);
   app.post("/api/search", cors, handleSearch);
 
+  // ─── Person hub: GET /api/person/:slug ──────────────────────────────
+  // Read-only, javni, cross-channel agregat govornika. Isti CORS + rate-limit
+  // wrapper kao /api/search. Resolve slug→osoba (PG), pa CH agregat epizoda.
+  const handlePerson = (req: Request, res: Response) => {
+    if (!rateLimit(req, res)) return; // 429 already sent
+
+    const parsed = GetPersonInput.safeParse({ slug: req.params.slug });
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", detail: parsed.error.issues });
+      return;
+    }
+
+    getPerson(parsed.data, { ch: deps.ch, pg: deps.pg })
+      .then((hub) => {
+        // Deterministički → kratki CDN/browser cache (person stranica je stabilna
+        // do sljedećeg ingesta; 5 min je siguran kompromis svježine/tereta).
+        res.setHeader("Cache-Control", "public, max-age=300");
+        res.json(hub);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof PersonNotFoundError) {
+          res.status(404).json({ error: "not_found", slug: err.slug });
+          return;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[public-api] /api/person failed:", msg);
+        if (!res.headersSent) res.status(500).json({ error: "internal" });
+      });
+  };
+
+  app.options("/api/person/:slug", cors);
+  app.get("/api/person/:slug", cors, handlePerson);
+
   console.error(
-    `[public-api] /api/search enabled (origins=${config.publicSearchAllowedOrigins.join(",")}, ` +
+    `[public-api] /api/search + /api/person enabled (origins=${config.publicSearchAllowedOrigins.join(",")}, ` +
       `rate=${config.publicSearchRatePerMinute}/min)`,
   );
 }
