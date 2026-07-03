@@ -64,12 +64,14 @@ export interface PersonEpisode {
 }
 
 // Epizoda u kojoj se osoba SPOMINJE (summary.mentioned_people) ali NE govori.
-// Bez `first_ts` (nema speaking-timestamp) → deep_link bez /t/.
+// `first_ts` = sekunda najranijeg spomena (article.json entity); 0 = nepoznato →
+// deep_link pada na cijelu epizodu (/v/{id} bez /t/).
 export interface PersonMention {
   youtube_id: string;
   title: string | null;
   channel: string;
   upload_date: string;
+  first_ts: number;
   deep_link: string;
 }
 
@@ -94,6 +96,7 @@ interface MentionRow {
   title: string | null;
   channel: string;
   upload_date: string;
+  mention_ts: number | string; // pg vraća INT; može doći kao broj ili string
 }
 
 
@@ -108,7 +111,8 @@ async function fetchMentions(
   let rows: MentionRow[];
   try {
     const res = await pg.query<MentionRow>(
-      `SELECT youtube_id, title, channel, to_char(upload_date, 'YYYY-MM-DD') AS upload_date
+      `SELECT youtube_id, title, channel, to_char(upload_date, 'YYYY-MM-DD') AS upload_date,
+              COALESCE(mention_ts, 0) AS mention_ts
        FROM person_mentions
        WHERE slug = $1
        ORDER BY upload_date DESC NULLS LAST, youtube_id`,
@@ -122,13 +126,20 @@ async function fetchMentions(
   }
   return rows
     .filter((r) => !excludeIds.has(r.youtube_id))
-    .map((r) => ({
-      youtube_id: r.youtube_id,
-      title: r.title,
-      channel: r.channel,
-      upload_date: r.upload_date,
-      deep_link: `https://domovina.ai/v/${r.youtube_id}`,
-    }));
+    .map((r) => {
+      // mention_ts > 0 → seek na točan trenutak; inače cijela epizoda.
+      const firstTs = Math.max(0, Math.round(Number(r.mention_ts) || 0));
+      return {
+        youtube_id: r.youtube_id,
+        title: r.title,
+        channel: r.channel,
+        upload_date: r.upload_date,
+        first_ts: firstTs,
+        deep_link: firstTs > 0
+          ? `https://domovina.ai/v/${r.youtube_id}/t/${firstTs}`
+          : `https://domovina.ai/v/${r.youtube_id}`,
+      };
+    });
 }
 
 

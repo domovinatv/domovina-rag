@@ -16,7 +16,12 @@ from pathlib import Path
 REPO_ETL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ETL))
 
-from etl.sources import JsonlFile, read_mentioned_people  # noqa: E402
+from etl.sources import (  # noqa: E402
+    JsonlFile,
+    clock_to_sec,
+    read_article_entity_ts,
+    read_mentioned_people,
+)
 from etl.speakers import slugify  # noqa: E402
 
 REPO_ROOT = REPO_ETL.parent.parent
@@ -63,6 +68,44 @@ def test_read_mentioned_people_bad_json():
         assert read_mentioned_people(jsonl) == ([], None)
 
 
+def test_clock_to_sec():
+    assert clock_to_sec("00:00:40") == 40
+    assert clock_to_sec("01:02:03") == 3723
+    assert clock_to_sec("06:00") == 360        # MM:SS
+    assert clock_to_sec("90") == 90
+    assert clock_to_sec("") == 0
+    assert clock_to_sec("junk") == 0
+
+
+def test_read_article_entity_ts():
+    with tempfile.TemporaryDirectory() as d:
+        dirpath = Path(d)
+        base = "20260424_koncert_yt_DR9rrCDpnTA"
+        jsonl = _make_jsonl(dirpath, base, "DR9rrCDpnTA")
+        (dirpath / f"{base}.wav.canary.diarized_2026-05-11_gemini.article.json").write_text(
+            json.dumps({
+                "iterations": [{
+                    "sections": [
+                        {"screenshot_timestamp": "00:03:10", "entities": ["Ante Čaljkušić"]},
+                        {"screenshot_timestamp": "00:00:40", "entities": ["Vanessa Mioć"]},
+                        # Ista osoba kasnije — MIN mora pobijediti:
+                        {"screenshot_timestamp": "00:10:00", "entities": ["Ante Caljkusic"]},
+                    ],
+                }]
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        m = read_article_entity_ts(jsonl, slugify)
+        assert m["ante-caljkusic"] == 190, m   # 00:03:10, ne 00:10:00 (ASR fold match)
+        assert m["vanessa-mioc"] == 40
+
+
+def test_read_article_entity_ts_missing():
+    with tempfile.TemporaryDirectory() as d:
+        jsonl = _make_jsonl(Path(d), "20200101_x_yt_abcdefghijk", "abcdefghijk")
+        assert read_article_entity_ts(jsonl, slugify) == {}
+
+
 def test_emit_person_mentions_slug_matches_speakers():
     # Isti slug algoritam kao speakers.slug → whole-person join u hub.
     tsv = "DR9rrCDpnTA\t40_dana_za_zivot\t2026-05-28\tKoncert\tAnte Čaljkušić\n"
@@ -90,6 +133,23 @@ def test_emit_person_mentions_drops_role_and_dedups():
     ).stdout
     assert out.count("'ante-caljkusic'") == 1, out
     assert "Voditelj" not in out
+
+
+def test_emit_carries_and_mins_mention_ts():
+    # mention_ts se prenese; dva reda iste osobe+videa → MIN ne-nula ts.
+    tsv = (
+        "vid1\tch\t2026-01-01\tT\tMarko Perković Thompson\t190\n"
+        "vid1\tch\t2026-01-01\tT\tAnte Čaljkušić\t0\n"        # miss → 0 → /v/ fallback
+        "vid2\tch\t2026-01-01\tT\tAnte Čaljkušić\t530\n"
+        "vid2\tch\t2026-01-01\tT\tAnte Caljkusic\t120\n"      # ista osoba+video → min(530,120)=120
+    )
+    out = subprocess.run(
+        [sys.executable, str(EMIT_SCRIPT)],
+        input=tsv, capture_output=True, text=True, check=True,
+    ).stdout
+    assert "'marko-perkovic-thompson','vid1','ch','T','2026-01-01'::date,190)" in out, out
+    assert "'ante-caljkusic','vid1','ch','T','2026-01-01'::date,0)" in out, out
+    assert "'ante-caljkusic','vid2','ch','T','2026-01-01'::date,120)" in out, out
 
 
 def _main() -> int:

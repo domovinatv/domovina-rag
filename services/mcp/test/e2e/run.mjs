@@ -259,6 +259,22 @@ const ASSERTIONS = {
       ? null
       : `expected array field '${field}' to include object with ${subField}='${value}'`,
 
+  // Za svaki mention: first_ts>0 ⟺ deep_link .../v/{id}/t/{first_ts}; first_ts==0 ⟺ .../v/{id}.
+  // Validira ISPRAVNOST timestamp deep-linka neovisno o pokrivenosti (koliko ih se riješilo).
+  mentions_deeplink_matches_first_ts: (p) => {
+    if (!p || !Array.isArray(p.mentions)) return `expected 'mentions' array`;
+    for (const m of p.mentions) {
+      const ts = Number(m.first_ts);
+      const expected = ts > 0
+        ? `https://domovina.ai/v/${m.youtube_id}/t/${ts}`
+        : `https://domovina.ai/v/${m.youtube_id}`;
+      if (m.deep_link !== expected) {
+        return `deep_link mismatch za ${m.youtube_id}: first_ts=${m.first_ts} → '${m.deep_link}' (očekivano '${expected}')`;
+      }
+    }
+    return null;
+  },
+
   object_array_field_excludes_object_with_field_value: (p, [field, subField, value]) =>
     p && Array.isArray(p[field]) && !p[field].some(
       (item) => item && typeof item === "object" && item[subField] === value,

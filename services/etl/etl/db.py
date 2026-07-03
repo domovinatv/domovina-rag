@@ -232,7 +232,7 @@ class ChClient:
         """Batch insert u `episode_mentions` (jedan red po youtube_id+person).
 
         Idempotentno — ReplacingMergeTree(inserted_at) ORDER BY (youtube_id, person).
-        Kolone: youtube_id, channel, upload_date, title, person.
+        Kolone: youtube_id, channel, upload_date, title, person, mention_ts.
         """
         if not rows:
             return
@@ -245,6 +245,7 @@ class ChClient:
                 "upload_date",
                 "title",
                 "person",
+                "mention_ts",
             ],
         )
 

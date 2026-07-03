@@ -148,10 +148,14 @@ export default [
       object_array_field_excludes_object_with_field_value: [
         "episodes", "youtube_id", "DR9rrCDpnTA",
       ],
+      // Timestamp deep-link: svaki mention ima konzistentan first_ts↔deep_link
+      // (/t/<sec> kad je riješen iz article.json, /v/<id> inače).
+      mentions_deeplink_matches_first_ts: true,
     },
     expected_answer:
       "Sekcija 'Spominje se u' navodi DR9rrCDpnTA (koncert) gdje se Ante " +
-      "Čaljkušić spominje ali ne govori; deep_link je /v/{id} bez /t/.",
+      "Čaljkušić spominje ali ne govori. Dio mentiona ima /t/<sec> deep-link " +
+      "(spomen u točnom trenutku iz article.json), ostali cijelu epizodu.",
   },
 
   // ───────────────── ŠTO JE X REKAO O Y ──────────────────────────

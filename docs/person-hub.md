@@ -65,11 +65,32 @@ postoji samo lokalno — nikad se ne push-a u cloud CH):
    čita **lokalni** CH. Dio dnevnog cron-a (korak 6b u `sync-cron.sh`).
 3. **`/api/person` → `mentions[]`**: čita `person_mentions WHERE slug`, **izbaci
    youtube_id koji su već u `episodes[]`** (govori ima prednost), sort
-   `upload_date` desc, `deep_link = /v/{id}` **bez** `/t/` (nema speaking-timestamp).
+   `upload_date` desc, `deep_link = /v/{id}/t/{sec}` kad je `mention_ts > 0`,
+   inače `/v/{id}` (cijela epizoda).
 
 Slug se poklapa jer je isti fold: "Ante Čaljkušić" → `ante-caljkusic` i kao
 speaker i kao mention. Osoba koja se **samo** spominje (nema `speakers` red)
 i dalje vraća 404 — mention-only profili su izvan scope-a.
+
+### Timestamp deep-link (`mention_ts`)
+
+`deep_link` skoči na TOČAN trenutak spomena kad ga uspijemo razriješiti iz
+`article.json` (`iterations[].sections[]`; svaka sekcija: `screenshot_timestamp`
+"HH:MM:SS" + `entities[]`). Algoritam pri ETL-u (`read_article_entity_ts` u
+`sources.py`, poziva se u `load.py` hooku + `etl mentions` backfillu):
+
+1. Splošti sve sekcije, `clock_to_sec(screenshot_timestamp)` = `start_sec`.
+2. Slug-foldaj sve `entities[]` (**isti** `slugify` kao person slug — ASR mrvi
+   dijakritike: article "Mi**ć**" vs summary "Mi**č**", pa string-match promašuje).
+3. `mention_ts` = NAJRANIJI `start_sec` sekcije gdje `person_slug ∈ entity_slugs`;
+   0 ako nema hita.
+
+Precompute (CH `episode_mentions.mention_ts` → PG `person_mentions.mention_ts`)
+da `/api/person` ostane jedan jeftin PG upit. `article.json` je lokalni sibling
+(`{basename}.wav.canary.diarized_*.article.json`, najnoviji po mtime); ako fali →
+tiho 0 (cijela epizoda). **Pokrivenost je namjerno djelomična** (`mentioned_people`
+je šire od sekcijskih entiteta — ~59% redova ima ts); "timestamp kad možemo,
+cijela epizoda inače". 100% bi tražio pravi NER+entity-linking nad transkriptom.
 
 ## Deploy runbook
 
@@ -118,10 +139,13 @@ MCP_API_KEY=$KEY MCP_URL=$BASE TEST_CATEGORY=person node test/e2e/run.mjs
                   "upload_date": "2026-06-05", "first_ts": 6,
                   "deep_link": "https://domovina.ai/v/…/t/6" }],
   "timeline":  [{ "month": "2019-01", "count": 3 }],  // count = broj epizoda u mjesecu
-  "mentions":  [{ "youtube_id": "DR9rrCDpnTA", "title": "…", "channel": "…",
-                  "upload_date": "2026-04-24",
-                  "deep_link": "https://domovina.ai/v/DR9rrCDpnTA" }],  // BEZ /t/
-  "mention_episode_count": 1
+  "mentions":  [{ "youtube_id": "H1eVsztGkeo", "title": "…", "channel": "…",
+                  "upload_date": "2025-10-08", "first_ts": 3261,
+                  "deep_link": "https://domovina.ai/v/H1eVsztGkeo/t/3261" },   // razriješen ts
+                { "youtube_id": "DR9rrCDpnTA", "title": "…", "channel": "…",
+                  "upload_date": "2026-04-24", "first_ts": 0,
+                  "deep_link": "https://domovina.ai/v/DR9rrCDpnTA" }],          // fallback (cijela epizoda)
+  "mention_episode_count": 2
 }
 ```
 
@@ -129,9 +153,9 @@ MCP_API_KEY=$KEY MCP_URL=$BASE TEST_CATEGORY=person node test/e2e/run.mjs
 gađa frontend player rutu `https://domovina.ai/v/{youtube_id}/t/{first_ts}`.
 
 `mentions[]` = epizode gdje se osoba **spominje** ali ne govori (disjunktno od
-`episodes[]`); `deep_link` je `/v/{id}` bez `/t/`. `mention_episode_count` =
-`mentions.length`. Osoba bez spomena → `mentions: []`, `mention_episode_count: 0`
-(backward-compat; stari klijenti nezahvaćeni).
+`episodes[]`); `first_ts` = trenutak spomena iz `article.json` (0 = nepoznato →
+`deep_link` bez `/t/`, cijela epizoda). `mention_episode_count` = `mentions.length`.
+Osoba bez spomena → `mentions: []`, `mention_episode_count: 0` (backward-compat).
 
 ### Deploy mentions (uz gornji runbook)
 

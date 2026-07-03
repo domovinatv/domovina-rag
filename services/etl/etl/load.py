@@ -14,9 +14,11 @@ from .sources import (
     Chunk,
     JsonlFile,
     episode_meta_from_first_chunk,
+    read_article_entity_ts,
     read_mentioned_people,
     stream_chunks,
 )
+from .speakers import slugify
 
 
 log = logging.getLogger("etl.load")
@@ -127,11 +129,16 @@ def load_file(
     people, title_hr = read_mentioned_people(jsonl)
     if people:
         mention_title = title_hr or meta.title or ""
+        # mention_ts: najranija article.json sekcija gdje se osoba (kao entity)
+        # spominje. 0 = nema hita → cijela epizoda (fallback). Vidi read_article_entity_ts.
+        entity_ts = read_article_entity_ts(jsonl, slugify)
         ch.insert_mentions(
-            [[meta.youtube_id, channel, upload_date, mention_title, person]
+            [[meta.youtube_id, channel, upload_date, mention_title, person,
+              entity_ts.get(slugify(person), 0)]
              for person in people]
         )
-        log.info("  → %d spomenutih osoba (mentions)", len(people))
+        resolved = sum(1 for p in people if entity_ts.get(slugify(p), 0) > 0)
+        log.info("  → %d spomenutih osoba (mentions), %d s timestampom", len(people), resolved)
 
     pg.update_sync_state(
         source_name="jsonl_ingest",

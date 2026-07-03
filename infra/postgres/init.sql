@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS person_mentions (
     channel         TEXT NOT NULL,
     title           TEXT,
     upload_date     DATE,
+    mention_ts      INT DEFAULT 0,             -- sekunda najranijeg spomena (article.json); 0 = cijela epizoda
     created_at      TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (slug, youtube_id)
 );

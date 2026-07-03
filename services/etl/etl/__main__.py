@@ -18,8 +18,13 @@ import datetime as _dt
 from .db import ChClient, ChConfig, PgClient, PgConfig
 from .embed import EmbedderClient
 from .load import LoadStats, load_file
-from .sources import discover_jsonl, episode_meta_from_first_chunk, read_mentioned_people
-from .speakers import build_persons, _load_seed
+from .sources import (
+    discover_jsonl,
+    episode_meta_from_first_chunk,
+    read_article_entity_ts,
+    read_mentioned_people,
+)
+from .speakers import build_persons, slugify, _load_seed
 
 
 log = logging.getLogger("etl")
@@ -212,6 +217,7 @@ def cmd_mentions(args: argparse.Namespace) -> int:
 
         episodes_with = 0
         total_rows = 0
+        total_ts = 0
         for f in targets:
             people, title_hr = read_mentioned_people(f)
             if not people:
@@ -223,20 +229,24 @@ def cmd_mentions(args: argparse.Namespace) -> int:
             except ValueError:
                 upload_date = _dt.date(1970, 1, 1)
             title = title_hr or meta.title or ""
+            entity_ts = read_article_entity_ts(f, slugify)
             rows = [
-                [meta.youtube_id, meta.channel_slug, upload_date, title, person]
+                [meta.youtube_id, meta.channel_slug, upload_date, title, person,
+                 entity_ts.get(slugify(person), 0)]
                 for person in people
             ]
+            resolved = sum(1 for r in rows if r[5] > 0)
+            total_ts += resolved
             if args.dry_run:
-                print(f"  {f.youtube_id}  {len(people):>3} osoba  {title[:60]}")
+                print(f"  {f.youtube_id}  {len(people):>3} osoba ({resolved} s ts)  {title[:50]}")
             else:
                 ch.insert_mentions(rows)
             episodes_with += 1
             total_rows += len(rows)
 
         log.info(
-            "Done: %d epizoda sa spomenima, %d mention-redova%s",
-            episodes_with, total_rows, " (dry-run)" if args.dry_run else "",
+            "Done: %d epizoda sa spomenima, %d mention-redova (%d s timestampom)%s",
+            episodes_with, total_rows, total_ts, " (dry-run)" if args.dry_run else "",
         )
     finally:
         ch.close()

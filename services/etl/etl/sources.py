@@ -202,3 +202,64 @@ def read_mentioned_people(jsonl: JsonlFile) -> tuple[list[str], Optional[str]]:
     names = [str(p).strip() for p in people if isinstance(p, str) and p.strip()]
     title = summary.get("title_hr")
     return names, (str(title) if title else None)
+
+
+def clock_to_sec(s: str) -> int:
+    """`"HH:MM:SS"` ili `"MM:SS"` (ili čisti broj) → cijele sekunde. Tolerantno."""
+    if not s:
+        return 0
+    parts = str(s).strip().split(":")
+    try:
+        nums = [float(x) for x in parts]
+    except (ValueError, TypeError):
+        return 0
+    if len(nums) == 3:
+        return int(nums[0] * 3600 + nums[1] * 60 + nums[2])
+    if len(nums) == 2:
+        return int(nums[0] * 60 + nums[1])
+    return int(nums[0]) if nums else 0
+
+
+# Producer article sidecar: `{basename}.wav.canary.diarized_{date}_{model}.article.json`
+# (varijabilni date+model u imenu → glob + najnoviji po mtime).
+_ARTICLE_GLOB_SUFFIX = "*.article.json"
+
+
+def read_article_entity_ts(jsonl: JsonlFile, slugify) -> dict[str, int]:
+    """Vrati `{entity_slug: najranija_sekunda}` iz sibling article.json-a.
+
+    `article.json` ima `iterations[].sections[]`; svaka sekcija nosi
+    `screenshot_timestamp` ("HH:MM:SS") + `entities[]` (imena). Splošti SVE
+    sekcije, slug-foldaj svaki entity (`slugify` = isti fold kao person slug) i
+    zapamti NAJRANIJU sekundu po slug-u. Prazan dict ako nema/nevaljan sidecar.
+
+    `slugify` se prosljeđuje (a ne importa) da ovaj modul ostane bez ovisnosti o
+    etl.speakers (izbjegava cirkularni import; caller već ima slugify).
+    """
+    matches = list(jsonl.path.parent.glob(jsonl.basename + _ARTICLE_GLOB_SUFFIX))
+    if not matches:
+        return {}
+    # Najnoviji article (producer može regenerirati s novijim modelom/datumom).
+    article_path = max(matches, key=lambda p: p.stat().st_mtime)
+    try:
+        with article_path.open("r", encoding="utf-8") as f:
+            doc = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(doc, dict):
+        return {}
+    out: dict[str, int] = {}
+    for iteration in doc.get("iterations") or []:
+        if not isinstance(iteration, dict):
+            continue
+        for section in iteration.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            sec = clock_to_sec(section.get("screenshot_timestamp"))
+            for entity in section.get("entities") or []:
+                if not isinstance(entity, str):
+                    continue
+                sl = slugify(entity)
+                if sl and (sl not in out or sec < out[sl]):
+                    out[sl] = sec
+    return out

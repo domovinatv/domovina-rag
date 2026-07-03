@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS episode_mentions (
     upload_date     Date,
     title           String,                    -- summary.title_hr (fallback metadata.title)
     person          String,                    -- SIROVO ime iz mentioned_people; slug računa Python
+    mention_ts      UInt32 DEFAULT 0,          -- sekunda najranijeg spomena (article.json entity); 0 = nema/cijela epizoda
     inserted_at     DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(inserted_at)
 ORDER BY (youtube_id, person);
