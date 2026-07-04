@@ -99,7 +99,7 @@ def quantize(x: np.ndarray) -> np.ndarray:
     return q.round().astype(np.uint16)
 
 
-def find_clusters(xy: np.ndarray, n: int) -> np.ndarray:
+def find_clusters(xy: np.ndarray, n: int, mcs: int) -> np.ndarray:
     """HDBSCAN nad 2D layoutom (standard: datamapplot/Nomic). -1 = šum.
 
     `leaf` selekcija namjerno: `eom` na UMAP layoutu kolapsira sve u 1-2
@@ -108,7 +108,6 @@ def find_clusters(xy: np.ndarray, n: int) -> np.ndarray:
     šum-točke se normalno crtaju."""
     from sklearn.cluster import HDBSCAN  # sklearn je već dep umap-learna
 
-    mcs = max(150, n // 600)
     lab = HDBSCAN(min_cluster_size=mcs, cluster_selection_method="leaf").fit_predict(xy)
     k = int(lab.max()) + 1
     log(f"HDBSCAN: {k} klastera (min_cluster_size={mcs}, šum: {int((lab < 0).sum())} točaka)")
@@ -153,19 +152,37 @@ def _gemini_cli(prompt: str) -> str:
     return res.stdout
 
 
-def name_clusters(title_lists: list[list[str]]) -> list[str] | None:
-    """LLM imenovanje: po klasteru lista naslova → 1-3 riječi HR tema. Backend:
-    Vertex (default) s fallbackom na gemini CLI; GEMINI_BACKEND=cli forsira CLI.
-    None ako oba puknu — caller tada izostavi clusters iz meta."""
+def name_clusters(title_lists: list[list[str]], fine: bool = False, tchars: int = 110) -> list[str] | None:
+    """LLM imenovanje u BATCHEVIMA od 60 klastera (na 240 odjednom model gubi
+    brojanje — vraćao 196/240 labela). Failani batch → prazne labele (caller ih
+    naslijedi iz prethodnog snapshota); None samo ako NIŠTA nije imenovano."""
+    BATCH = 60
+    out: list[str] = []
+    for s in range(0, len(title_lists), BATCH):
+        batch = title_lists[s : s + BATCH]
+        labels = _name_batch(batch, fine, tchars)
+        out += labels if labels else [""] * len(batch)
+    return out if any(out) else None
+
+
+def _name_batch(title_lists: list[list[str]], fine: bool, tchars: int) -> list[str] | None:
+    """Jedan LLM poziv: po klasteru lista naslova → 1-3 riječi HR tema. Backend:
+    Vertex (default) s fallbackom na gemini CLI; GEMINI_BACKEND=cli forsira CLI."""
     numbered = "\n".join(
-        f"{i}: " + " | ".join(t[:110] for t in titles) for i, titles in enumerate(title_lists)
+        f"{i}: " + " | ".join(t[:tchars] for t in titles) for i, titles in enumerate(title_lists)
+    )
+    kind = (
+        "što SPECIFIČNIJU podtemu (razina detalja: \"Krunica i pobožnosti\", "
+        "\"Izbori u Zagrebu\", \"Rukometne legende\")"
+        if fine else
+        "kratak naziv GLAVNE teme (razina detalja: \"Vjera i Crkva\", \"Rat u Ukrajini\", "
+        "\"Domaća politika\")"
     )
     prompt = (
         "Dolje su klasteri semantički sličnih isječaka hrvatskih podcasta; za svaki su "
-        "navedeni najčešći naslovi epizoda. Za SVAKI klaster vrati kratak naziv teme na "
-        "hrvatskom (1-3 riječi, imenska fraza, bez navodnika i interpunkcije; npr. "
-        "\"Vjera i Crkva\", \"Rat u Ukrajini\", \"Domaća politika\"). Nazivi neka budu "
-        "međusobno što raznolikiji.\n\n"
+        f"navedeni najčešći naslovi epizoda. Za SVAKI klaster vrati {kind} na "
+        "hrvatskom — 1-3 riječi, imenska fraza, bez navodnika i interpunkcije. "
+        "Nazivi neka budu međusobno što raznolikiji.\n\n"
         f"{numbered}\n\n"
         'Odgovori ISKLJUČIVO JSON objektom: {"labels": ["naziv za 0", "naziv za 1", ...]} '
         f"s točno {len(title_lists)} elemenata, istim redom."
@@ -194,6 +211,7 @@ def main() -> int:
     ap.add_argument("--raw", required=True, type=Path)
     ap.add_argument("--episodes", required=True, type=Path)
     ap.add_argument("--titles", required=True, type=Path)
+    ap.add_argument("--chapters", type=Path, help="TSV: youtube_id \\t t_sec \\t naslov chunka (Tema:/Naslov: prva linija)")
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--generated-at", required=True)
     ap.add_argument("--source", required=True, choices=["cloud", "local"])
@@ -237,6 +255,32 @@ def main() -> int:
     ]
     ep_col = np.fromiter((ep_idx[y] for y in yids), dtype=np.uint16, count=n)
 
+    # ── Chapter shardovi (naslov isječka za tooltip/snackbar) ─────────────────
+    # Per-chunk naslov ("Tema:"/"Naslov:" prva linija texta) je ~10 MB za cijeli
+    # korpus — preskupo za jedan fetch, pa se sharda po ep_idx % 64 (~160 kB po
+    # shardu); frontend lazy-fetcha shard tek na hover/tap i kešira ga.
+    NSHARD = 64
+    if args.chapters and args.chapters.exists():
+        chap: dict[int, list[list]] = {}
+        n_titles_ch = 0
+        for line in args.chapters.read_text(encoding="utf-8").splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3 or len(parts[0]) != 11 or parts[0] not in ep_idx:
+                continue
+            title = "\t".join(parts[2:]).strip()
+            if not title:
+                continue
+            e = ep_idx[parts[0]]
+            t = int(parts[1]) if parts[1].isdigit() else 0
+            chap.setdefault(e, []).append([t, title[:90]])
+            n_titles_ch += 1
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(NSHARD):
+            shard = {str(e): sorted(lst) for e, lst in chap.items() if e % NSHARD == i}
+            (args.out_dir / f"vector-map-chap-{i:02d}.json").write_text(
+                json.dumps(shard, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        log(f"chapters: {n_titles_ch} naslova isječaka u {NSHARD} shardova")
+
     # ── UMAP 2D + 3D (najskuplji dio: ~2×2 min na M4; verbose u stderr/log) ───
     import umap  # import tek sad — arg/input greške ne čekaju numba JIT
 
@@ -254,72 +298,87 @@ def main() -> int:
     q3 = quantize(xyz)
 
     # ── Klasteri (na 2D layoutu) + LLM imena ─────────────────────────────────
-    # Klasteri se emitiraju UVIJEK (i bez imena, label=""; frontend prazne
-    # skipa). "eps" (top epizode po klasteru) je stabilan otisak sadržaja:
-    # ako LLM nije dostupan (Vertex BILLING_DISABLED…), novi klasteri
-    # NASLIJEDE labele iz prethodnog vector-map.json po preklapanju epizoda —
-    # otporno na to što se UMAP layout rotira/flipa između runova.
-    clab = find_clusters(xy, n)
-    k = int(clab.max()) + 1
+    # DVIJE razine ("l"): 0 = glavne teme (grubi HDBSCAN), 1 = podteme (finiji) —
+    # frontend fine labele otkriva tek na dubljem zoomu (progressive disclosure,
+    # kao imena gradova/kvartova na karti). Klasteri se emitiraju UVIJEK (i bez
+    # imena, label=""; frontend prazne skipa). "eps" (top epizode po klasteru) je
+    # stabilan otisak sadržaja: ako LLM nije dostupan, novi klasteri NASLIJEDE
+    # labele iz prethodnog vector-map.json po preklapanju epizoda (unutar iste
+    # razine) — otporno na to što se UMAP layout rotira/flipa između runova.
+    prev_path = args.out_dir / "vector-map.json"
+    prev_clusters = []
+    if prev_path.exists():
+        try:
+            prev_clusters = json.loads(prev_path.read_text(encoding="utf-8")).get("clusters", [])
+        except Exception:  # noqa: BLE001
+            pass
+
     clusters: list[dict] = []
-    if k > 0:
+    sidecar: list[dict] = []
+    #        (mcs,               cap, n_titles, tchars, fine)
+    LEVELS = [(max(150, n // 600), 60, 12, 110, False),
+              (max(60, n // 2000), 240, 8, 90, True)]
+    for lvl, (mcs, cap, n_titles, tchars, fine) in enumerate(LEVELS):
+        clab = find_clusters(xy, n, mcs)
+        k = int(clab.max()) + 1
+        if k == 0:
+            continue
         title_lists: list[list[str]] = []
         eps_lists: list[list[str]] = []
-        order = np.argsort([-(clab == c).sum() for c in range(k)])[:60]  # cap 60 najvećih
+        order = np.argsort([-(clab == c).sum() for c in range(k)])[:cap]
         for c in order:
             m = clab == c
             eps, cnt = np.unique(ep_col[m], return_counts=True)
-            top = eps[np.argsort(-cnt)][:12]
+            top = eps[np.argsort(-cnt)][:n_titles]
             title_lists.append([episodes[e][2] or episodes[e][0] for e in top])
             eps_lists.append([episodes[e][0] for e in top[:10]])
-        labels = name_clusters(title_lists) or [""] * len(title_lists)
+        labels = name_clusters(title_lists, fine=fine, tchars=tchars) or [""] * len(title_lists)
 
-        # Nasljeđivanje iz prethodnog snapshota za neimenovane klastere.
-        prev_path = args.out_dir / "vector-map.json"
-        prev_clusters = []
-        if prev_path.exists():
-            try:
-                prev_clusters = json.loads(prev_path.read_text(encoding="utf-8")).get("clusters", [])
-            except Exception:  # noqa: BLE001
-                pass
+        # Nasljeđivanje iz prethodnog snapshota (ista razina) za neimenovane.
         inherited = 0
-        if prev_clusters and not all(labels):
+        prev_lvl = [pc for pc in prev_clusters if pc.get("l", 0) == lvl and pc.get("label")]
+        if prev_lvl and not all(labels):
             for i, label in enumerate(labels):
                 if label:
                     continue
                 mine = set(eps_lists[i])
                 best, best_ov = "", 2  # traži bar 3 zajedničke top-epizode
-                for pc in prev_clusters:
+                for pc in prev_lvl:
                     ov = len(mine & set(pc.get("eps", [])))
-                    if ov > best_ov and pc.get("label"):
+                    if ov > best_ov:
                         best, best_ov = pc["label"], ov
                 if best:
                     labels[i] = best
                     inherited += 1
         if inherited:
-            log(f"{inherited} labela naslijeđeno iz prethodnog snapshota")
+            log(f"lvl{lvl}: {inherited} labela naslijeđeno iz prethodnog snapshota")
 
+        lvl_clusters = []
         for i, c in enumerate(order):
             m = clab == c
-            clusters.append({
+            lvl_clusters.append({
                 "label": labels[i],
+                "l": lvl,
                 "x": int(np.median(q[m, 0])), "y": int(np.median(q[m, 1])),
                 "x3": int(np.median(q3[m, 0])), "y3": int(np.median(q3[m, 1])),
                 "z3": int(np.median(q3[m, 2])),
                 "n": int(m.sum()),
                 "eps": eps_lists[i],
             })
-        clusters.sort(key=lambda d: -d["n"])
-        named = sum(1 for c in clusters if c["label"])
-        log(f"{len(clusters)} klastera ({named} imenovano)")
+        lvl_clusters.sort(key=lambda d: -d["n"])
+        named = sum(1 for c in lvl_clusters if c["label"])
+        log(f"lvl{lvl}: {len(lvl_clusters)} klastera ({named} imenovano)")
 
         # Sidecar s naslovima po klasteru — za ručno/naknadno imenovanje i debug.
-        # (clusters je sortiran po n DESC, a title_lists prati `order` — spoji preko eps otiska)
         by_eps = {tuple(e): t for e, t in zip(eps_lists, title_lists)}
-        sidecar = [
-            {"i": i, "label": c["label"], "n": c["n"], "titles": by_eps.get(tuple(c["eps"]), [])}
-            for i, c in enumerate(clusters)
+        sidecar += [
+            {"i": len(clusters) + i, "l": lvl, "label": c["label"], "n": c["n"],
+             "titles": by_eps.get(tuple(c["eps"]), [])}
+            for i, c in enumerate(lvl_clusters)
         ]
+        clusters += lvl_clusters
+
+    if sidecar:
         (args.out_dir / "vector-map-titles.json").write_text(
             json.dumps(sidecar, ensure_ascii=False, indent=1), encoding="utf-8")
 

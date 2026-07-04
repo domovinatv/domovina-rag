@@ -83,6 +83,12 @@ log "Izvoz episode meta (channel, date) iz CH..."
 ch_query "SELECT youtube_id, any(channel), toString(min(upload_date)) FROM rag_chunks WHERE $WHERE GROUP BY youtube_id FORMAT TSV" \
   > "$WORK/episodes.tsv"
 
+log "Izvoz naslova isječaka (chapters) iz CH..."
+# Prva linija chunk texta je "Tema: …" (topic_transcript) ili "Naslov: …"
+# (article_summary) → naslov isječka za tooltip. Shardanje radi emit skripta.
+ch_query "SELECT youtube_id, toUInt16(least(round(start_ts), 65535)), extract(text, '^(?:Tema|Naslov): ?([^\\n]+)') FROM rag_chunks WHERE $WHERE FORMAT TSV" \
+  > "$WORK/chapters.tsv"
+
 log "Izvoz naslova iz PG..."
 docker exec -i "$LOCAL_PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -Atc \
   "COPY (SELECT youtube_id, title FROM episodes WHERE title IS NOT NULL) TO STDOUT" \
@@ -94,6 +100,7 @@ GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   --raw          "$WORK/raw.bin" \
   --episodes     "$WORK/episodes.tsv" \
   --titles       "$WORK/titles.tsv" \
+  --chapters     "$WORK/chapters.tsv" \
   --out-dir      "$OUT_DIR" \
   --generated-at "$GENERATED_AT" \
   --source       "local" \
