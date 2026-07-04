@@ -109,6 +109,17 @@ if [ "$RC" -eq 0 ]; then
   ./scripts/sync-person-mentions.sh --cloud || echo "[cron] WARN: cloud person_mentions populate pao/nije deployan (nastavljam)."
 fi
 
+# ─── 7a. Regeneriraj vektorsku mapu (UMAP nad chunk embeddinzima) ─────────────
+# vector-map.{bin,json} je CH-derivat kao stats.json (Razina 2 dashboarda,
+# stats.domovina.ai/map). Izvor je LOKALNI CH (izvoz embeddinga ~560 MB — preko
+# SSH-a bi bio besmislen; lokalni == cloud jer smo deltu upravo pushali u koraku
+# 4). Skripta sama PRESKAČE UMAP ako broj chunkova nije promijenjen. Mora ići
+# PRIJE koraka 7: sync-stats.sh --deploy nosi i mapu u istom wrangler deployu.
+if [ "$RC" -eq 0 ]; then
+  echo "[cron] Regeneriram vektorsku mapu (lokalni CH → domovina-stats/public)..."
+  ./scripts/sync-vector-map.sh || echo "[cron] WARN: vector map regeneracija pala (nastavljam)."
+fi
+
 # ─── 7. Osvježi javni stats dashboard (derivat CH-a) ──────────────────────────
 # stats.json je derivat CH-a (agregati nad rag_chunks) kao Meili i speakers. Puni
 # ga sync-stats.sh i deploya na CF Pages (stats.domovina.ai). Consumer je zaseban

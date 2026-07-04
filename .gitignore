@@ -17,6 +17,7 @@ __pycache__/
 *$py.class
 *.egg-info/
 .venv/
+.venv-vectormap/
 venv/
 .pytest_cache/
 .ruff_cache/
