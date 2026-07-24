@@ -82,8 +82,10 @@ bootstrap jer se `init.sql` NE re-runa na cloudu, cron korak): vidi
 `docs/data-refresh-flow.md` § 9. Uzor: `scripts/sync-speakers.sh`.
 
 **MCP deploy nije automatski:** MCP je Coolify Application bez push-webhooka →
-`git push` ne deploya. Redeploy se klikne u Coolify UI; `/health` verzija
-potvrđuje da je novi kod živ.
+`git push` ne deploya. Redeploy se klikne u Coolify UI **ILI** okine skriptom
+`services/mcp/deploy.sh` (Coolify REST API, app UUID `amu4q428khkefqhu5zd6cq88`;
+token/URL iz `domovina-api/.local-secrets.env` ili env-a). Skripta čeka da
+`/health` vrati 200. `/health` verzija potvrđuje da je novi kod živ.
 
 ## Initial scope (Faza 1)
 
