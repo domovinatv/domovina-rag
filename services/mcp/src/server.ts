@@ -153,12 +153,17 @@ export function createServer(deps: ServerDeps): Server {
       {
         name: "get_person",
         description:
-          "\"Person hub\": agregira SVE epizode u kojima jedna osoba GOVORI, " +
-          "cross-channel, iza stabilnog slug-a (npr. 'zeljka-markic', " +
-          "'don-tomislav-lukac'). Vraća statistiku (broj kanala/epizoda), " +
-          "raspodjelu po kanalima, mjesečni timeline i popis epizoda s deep " +
-          "linkovima. Granica: 'govori' (diarizirani speaker), NE 'spominje se " +
-          "u tekstu'. Slug je ASCII-fold imena (č→c, š→s, ž→z, đ→d, razmak→'-').",
+          "\"Person hub\": agregira SVE epizode u kojima se jedna osoba " +
+          "pojavljuje, cross-channel, iza stabilnog slug-a (npr. " +
+          "'zeljka-markic', 'ivan-merz'). Dva odvojena popisa: `episodes` = " +
+          "osoba GOVORI (diarizirani speaker) + `mentions` = osoba se SPOMINJE " +
+          "u epizodi a ne govori (disjunktno, s deep linkom na trenutak " +
+          "spomena). Osoba koja nikad nije bila gost (povijesna/pokojna) ima " +
+          "samo `mentions` — profil svejedno postoji. Uz to statistika (broj " +
+          "kanala/epizoda), raspodjela po kanalima i mjesečni timeline (za " +
+          "govor: channels/timeline; za spomene: mention_channels/" +
+          "mention_timeline). Slug je ASCII-fold imena (č→c, š→s, ž→z, đ→d, " +
+          "razmak→'-').",
         inputSchema: getPersonJsonSchema,
       },
       {

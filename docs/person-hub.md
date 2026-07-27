@@ -1,13 +1,19 @@
-# Person hub — cross-channel profil govornika
+# Person hub — cross-channel profil osobe
 
-Read-only, javna, korpus-wide značajka: **jedna osoba → sve epizode u kojima
-GOVORI, kroz sve kanale, iza stabilnog javnog slug-a** (`/p/don-tomislav-lukac`).
-Živi u `domovina-rag` (NE u `domovina-api` — tamo je user-auth/finance).
+Read-only, javna, korpus-wide značajka: **jedna osoba → sve epizode u kojima se
+pojavljuje, kroz sve kanale, iza stabilnog javnog slug-a**
+(`/p/don-tomislav-lukac`, `/p/ivan-merz`). Živi u `domovina-rag` (NE u
+`domovina-api` — tamo je user-auth/finance).
 
 ## Granice (locked)
 
-- **"Govori" only** — filter na `rag_chunks.speaker` (diarizirani/imenovani
-  govornik). NE "spominje se u tekstu" (bez NER-a).
+- **Dva izvora pojavljivanja, dva odvojena popisa**: `episodes[]` = osoba
+  GOVORI (diarizirani `rag_chunks.speaker`), `mentions[]` = osoba se SPOMINJE
+  (`summary.mentioned_people`). Disjunktno — govori ima prednost.
+- **Osoba postoji ako je zadovoljen BAR JEDAN izvor.** Povijesna/pokojna figura
+  koja nikad nije bila gost (bl. Ivan Merz) ima valjan profil samo iz spomena.
+  Do 2026-07-27 identitet je tražio `speakers` red, pa je ~15.5k mention-only
+  slugova vraćalo 404 iako je korpus pun spomena — vidi „Mention-only profil".
 - **Identitet = normalizacija + ručni aliasi** — bez voice-embedding rezolucije
   (Faza 3 ostaje deferred). Slug (ASCII-fold imena) JE ključ identiteta: sve
   case/dijakritika/crtica varijante iste osobe spajaju se u jedan red.
@@ -69,8 +75,36 @@ postoji samo lokalno — nikad se ne push-a u cloud CH):
    inače `/v/{id}` (cijela epizoda).
 
 Slug se poklapa jer je isti fold: "Ante Čaljkušić" → `ante-caljkusic` i kao
-speaker i kao mention. Osoba koja se **samo** spominje (nema `speakers` red)
-i dalje vraća 404 — mention-only profili su izvan scope-a.
+speaker i kao mention.
+
+### Mention-only profil (osoba koja nikad ne govori)
+
+Do 2026-07-27 `getPerson` je 404-ao ako nema `speakers` reda — a `speakers` se
+puni **isključivo** iz diarizacije. Posljedica: bl. Ivan Merz (33 spomena),
+i još ~15.5k slugova od ukupno 17.4k u `person_mentions`, bili su nedohvatljivi,
+uključujući entity-chipove u člancima koji već linkaju na `/p/<slug>`.
+
+Sad je identitet **disjunkcija** dvaju izvora:
+
+- `speakers` red postoji → govor-hub (+ eventualni spomeni), kao i prije.
+- nema ga, ali `person_mentions` ima redove → hub SAMO iz spomena:
+  `episodes: []`, `channels: []`, `timeline: []`, `episode_count: 0`, a
+  `mention_channels[]` / `mention_timeline[]` nose iste agregacije nad spomenima
+  (bez njih bi takav profil bio potpuno gol).
+- ni jedno ni drugo → `PersonNotFoundError` (404). To je jedini 404 slučaj.
+
+**Display ime**: `person_mentions.person_name` (migracija 005) čuva sirovo ime s
+dijakritikom; hub uzima najčešću varijantu po slugu. Dok kolona nije popunjena
+(prije prvog sync-a nakon migracije) pada na titlecase slug-a — `ivan-merz` →
+"Ivan Merz", ali `zeljka-markic` → "Zeljka Markic" (fold je nepovratan). Zato
+**pokreni `sync-person-mentions.sh` nakon migracije 005**.
+
+**Pobožni prefiks se skida prije slugify-a** (`strip_veneration` u
+`emit_person_mentions_sql.py`): "bl. Ivan Merz", "Blaženi Ivan Merz" i
+"Ivan Merz" su jedna osoba, ne tri profila. Klerički naslovi (don, fra, vlč.,
+mons.) se NAMJERNO ne diraju — dio su `speakers` konvencije
+(`don-tomislav-lukac`), pa bi ih skidanje odvojilo od huba istog čovjeka koji
+govori. Efekt se vidi tek nakon sljedećeg `sync-person-mentions.sh`.
 
 ### Timestamp deep-link (`mention_ts`)
 
@@ -145,7 +179,9 @@ MCP_API_KEY=$KEY MCP_URL=$BASE TEST_CATEGORY=person node test/e2e/run.mjs
                 { "youtube_id": "DR9rrCDpnTA", "title": "…", "channel": "…",
                   "upload_date": "2026-04-24", "first_ts": 0,
                   "deep_link": "https://domovina.ai/v/DR9rrCDpnTA" }],          // fallback (cijela epizoda)
-  "mention_episode_count": 2
+  "mention_episode_count": 2,
+  "mention_channels": [{ "channel": "…", "count": 2 }],  // agregacije nad mentions[]
+  "mention_timeline": [{ "month": "2025-10", "count": 1 }]
 }
 ```
 
@@ -156,6 +192,11 @@ gađa frontend player rutu `https://domovina.ai/v/{youtube_id}/t/{first_ts}`.
 `episodes[]`); `first_ts` = trenutak spomena iz `article.json` (0 = nepoznato →
 `deep_link` bez `/t/`, cijela epizoda). `mention_episode_count` = `mentions.length`.
 Osoba bez spomena → `mentions: []`, `mention_episode_count: 0` (backward-compat).
+
+Mention-only osoba (nikad gost) vraća isti shape s praznim govor-dijelom:
+`episodes: []`, `channels: []`, `timeline: []`, `episode_count: 0`,
+`channel_count: 0` — a `mentions[]` + `mention_channels[]`/`mention_timeline[]`
+su popunjeni. Frontend to gata preko `PersonHub.isMentionOnly`.
 
 ### Deploy mentions (uz gornji runbook)
 
@@ -174,6 +215,9 @@ psql "$POSTGRES_URL" -f infra/postgres/migrations/003_person_mentions.sql
 # 1b. Timestamp deep-link kolona (v0.7.0). sync-person-mentions.sh SCHEMA_SQL ionako
 #     ima ADD COLUMN IF NOT EXISTS, pa se cloud sam nadogradi — ali za jasnoću:
 psql "$POSTGRES_URL" -f infra/postgres/migrations/004_person_mentions_ts.sql
+# 1c. Display ime za mention-only osobe (v0.8.0). Isto: SCHEMA_SQL ima ADD COLUMN,
+#     ali bez SYNC-a (korak 3) kolona ostaje NULL → hub pada na titlecase slug-a.
+psql "$POSTGRES_URL" -f infra/postgres/migrations/005_person_mentions_name.sql
 
 # 2. Backfill episode_mentions po disku (čita summary.json + article.json siblings):
 DATA_SOURCE_DIR=/Volumes/DOMOVINA1TB/... docker compose --profile etl run --rm etl mentions --input /data

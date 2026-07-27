@@ -158,6 +158,30 @@ export default [
       "(spomen u točnom trenutku iz article.json), ostali cijelu epizodu.",
   },
 
+  {
+    id: "person-hub-mention-only",
+    category: "person",
+    requires: "multi_channel",
+    user_prompt: "Gdje se u podcastima spominje bl. Ivan Merz?",
+    tool_call: {
+      name: "get_person",
+      arguments: { slug: "ivan-merz" },
+    },
+    must_have: {
+      // Osoba koja NIKAD nije bila gost (pokojna) — prije je ovo bio 404.
+      // Identitet dolazi iz person_mentions, ne iz speakers.
+      object_field_path_number_min: ["mention_episode_count", 1],
+      object_field_path_number_max: ["episode_count", 0],
+      // Mention-only profil mora imati vlastite agregacije, inače je gol.
+      object_has_array_field: "mention_channels",
+      mentions_deeplink_matches_first_ts: true,
+    },
+    expected_answer:
+      "Profil postoji iako Ivan Merz nikad nije govorio: popis epizoda u kojima " +
+      "se spominje, s deep linkom na trenutak spomena, plus raspodjela spomena " +
+      "po kanalima.",
+  },
+
   // ───────────────── ŠTO JE X REKAO O Y ──────────────────────────
 
   {

@@ -1,11 +1,15 @@
-// get_person — "person hub": agregira SVE epizode u kojima jedna osoba GOVORI,
-// cross-channel, iza stabilnog javnog slug-a (/p/don-tomislav-lukac).
+// get_person — "person hub": agregira SVE epizode u kojima se jedna osoba
+// pojavljuje, cross-channel, iza stabilnog javnog slug-a (/p/don-tomislav-lukac).
 //
-// Identitet: PG `speakers` red (canonical_name + aliases[] sirovih CH tokena),
-// popunjen `python -m etl speakers`. Granica: "govori" = diarizirani/imenovani
-// speaker u rag_chunks.speaker — NE "spominje se u tekstu" (bez NER-a).
+// DVA IZVORA IDENTITETA (osoba postoji ako je bar jedan zadovoljen):
+//   1. GOVORI — PG `speakers` red (canonical_name + aliases[] sirovih CH
+//      tokena), popunjen `python -m etl speakers`; epizode iz CH rag_chunks.
+//   2. SPOMINJE SE — PG `person_mentions` (derivat summary.mentioned_people).
+//      Osoba koja nikad nije bila gost (povijesna, pokojna, javna figura o
+//      kojoj se priča) ima SAMO ovo. Prije je takav slug vraćao 404 iako je
+//      korpus pun spomena — vidi migrations/005 i docs/person-hub.md.
 //
-// Match je po CIJELIM tokenima (arrayExists … IN aliases), NE substring —
+// Match govora je po CIJELIM tokenima (arrayExists … IN aliases), NE substring —
 // kolona je comma-joined ("Ante Čaljkušić,Dijana Brozović"), pa naivni
 // position() bi davao lažne substring pogotke.
 
@@ -36,7 +40,8 @@ export const getPersonJsonSchema = {
       minLength: 1,
       maxLength: 120,
       description:
-        "Javni slug osobe (ASCII-folded, npr. 'don-tomislav-lukac'). " +
+        "Javni slug osobe (ASCII-folded, npr. 'don-tomislav-lukac' ili " +
+        "'ivan-merz'). Vrijedi i za osobe koje se samo SPOMINJU (nikad gost). " +
         "Popis validnih slugova: list_episodes vraća imena govornika; " +
         "slug je ASCII-fold imena (č→c, ć→c, š→s, ž→z, đ→d, razmak→'-').",
     },
@@ -75,6 +80,16 @@ export interface PersonMention {
   deep_link: string;
 }
 
+export interface CountBucket {
+  channel: string;
+  count: number;
+}
+
+export interface MonthBucket {
+  month: string;
+  count: number;
+}
+
 export interface PersonHub {
   name: string;
   slug: string;
@@ -82,12 +97,16 @@ export interface PersonHub {
   channel_count: number;
   episode_count: number;
   // count = broj epizoda u kojima osoba govori (na tom kanalu / u tom mjesecu)
-  channels: { channel: string; count: number }[];
+  channels: CountBucket[];
   episodes: PersonEpisode[];
-  timeline: { month: string; count: number }[];
+  timeline: MonthBucket[];
   // Epizode u kojima se osoba spominje ali ne govori (disjunktno od `episodes`).
   mentions: PersonMention[];
   mention_episode_count: number;
+  // Iste agregacije, ali nad `mentions` — profil osobe koja NIKAD ne govori
+  // (samo se spominje) inače nema ni raspodjelu po kanalima ni timeline.
+  mention_channels: CountBucket[];
+  mention_timeline: MonthBucket[];
 }
 
 
@@ -97,33 +116,43 @@ interface MentionRow {
   channel: string;
   upload_date: string;
   mention_ts: number | string; // pg vraća INT; može doći kao broj ili string
+  person_name: string | null; // migr. 005; NULL na bazi prije sljedećeg synca
 }
 
 
-// Epizode u kojima se osoba SPOMINJE (person_mentions, izvedeno iz
-// summary.mentioned_people). Isključi `excludeIds` (epizode u kojima GOVORI —
-// govori ima prednost, ne dupliciramo). Sort: najnovije prvo, kao episodes[].
-async function fetchMentions(
-  pg: Pool,
-  slug: string,
-  excludeIds: Set<string>,
-): Promise<PersonMention[]> {
-  let rows: MentionRow[];
+// Sirovi person_mentions redovi za slug. Graceful degradation na dvije razine:
+// bez `person_name` kolone (pre-005) → retry bez nje; bez tablice (pre-003) → [].
+async function fetchMentionRows(pg: Pool, slug: string): Promise<MentionRow[]> {
+  const base =
+    `SELECT youtube_id, title, channel, to_char(upload_date, 'YYYY-MM-DD') AS upload_date,
+            COALESCE(mention_ts, 0) AS mention_ts`;
+  const tail =
+    ` FROM person_mentions WHERE slug = $1 ORDER BY upload_date DESC NULLS LAST, youtube_id`;
   try {
     const res = await pg.query<MentionRow>(
-      `SELECT youtube_id, title, channel, to_char(upload_date, 'YYYY-MM-DD') AS upload_date,
-              COALESCE(mention_ts, 0) AS mention_ts
-       FROM person_mentions
-       WHERE slug = $1
-       ORDER BY upload_date DESC NULLS LAST, youtube_id`,
+      `${base}, person_name${tail}`,
       [slug],
     );
-    rows = res.rows;
+    return res.rows;
+  } catch {
+    // person_name kolona još ne postoji (migracija 005 nije primijenjena).
+  }
+  try {
+    const res = await pg.query<Omit<MentionRow, "person_name">>(base + tail, [
+      slug,
+    ]);
+    return res.rows.map((r) => ({ ...r, person_name: null }));
   } catch {
     // person_mentions tablica možda još ne postoji (pre-migracija) → prazno,
     // ne ruši hub. Backward-compat.
     return [];
   }
+}
+
+
+// Isključi `excludeIds` (epizode u kojima GOVORI — govori ima prednost, ne
+// dupliciramo). Sort dolazi iz SQL-a: najnovije prvo, kao episodes[].
+function toMentions(rows: MentionRow[], excludeIds: Set<string>): PersonMention[] {
   return rows
     .filter((r) => !excludeIds.has(r.youtube_id))
     .map((r) => {
@@ -140,6 +169,56 @@ async function fetchMentions(
           : `https://domovina.ai/v/${r.youtube_id}`,
       };
     });
+}
+
+
+// Display ime za osobu koja NEMA speakers red: najčešća `person_name` varijanta
+// iz spomena (tie-break leksikografski, za determinizam — isti princip kao
+// Person.recompute_canonical u etl/speakers.py).
+function pickMentionName(rows: MentionRow[]): string | null {
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const n = (r.person_name ?? "").trim();
+    if (n) counts.set(n, (counts.get(n) ?? 0) + 1);
+  }
+  if (counts.size === 0) return null;
+  return [...counts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  )[0]![0];
+}
+
+
+// Zadnji fallback za ime: "ivan-merz" → "Ivan Merz". Dijakritika je izgubljena
+// u ASCII foldu, ali je bolje nego prazan naslov profila.
+function titleizeSlug(slug: string): string {
+  return slug
+    .split("-")
+    .filter((w) => w.length > 0)
+    .map((w) => w[0]!.toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+
+// channels[] + timeline[] iz liste epizoda (govor ili spomen — ista agregacija).
+function aggregate(
+  items: { channel: string; upload_date: string }[],
+): { channels: CountBucket[]; timeline: MonthBucket[] } {
+  const channelCounts = new Map<string, number>();
+  const monthCounts = new Map<string, number>();
+  for (const it of items) {
+    channelCounts.set(it.channel, (channelCounts.get(it.channel) ?? 0) + 1);
+    const month = (it.upload_date ?? "").slice(0, 7); // YYYY-MM
+    if (/^\d{4}-\d{2}$/.test(month)) {
+      monthCounts.set(month, (monthCounts.get(month) ?? 0) + 1);
+    }
+  }
+  const channels = [...channelCounts.entries()]
+    .map(([channel, count]) => ({ channel, count }))
+    .sort((a, b) => b.count - a.count || a.channel.localeCompare(b.channel));
+  const timeline = [...monthCounts.entries()]
+    .map(([month, count]) => ({ month, count }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+  return { channels, timeline };
 }
 
 
@@ -176,27 +255,41 @@ export async function getPerson(
   args: GetPersonArgs,
   deps: { ch: ClickHouseClient; pg: Pool },
 ): Promise<PersonHub> {
+  const slug = args.slug.trim().toLowerCase();
+
   // 1. Slug → osoba (PG). Slug se lowercase-a jer je pohranjen lowercase.
-  const { rows: speakerRows } = await deps.pg.query<SpeakerRow>(
-    `SELECT canonical_name, slug, avatar_url, aliases
-     FROM speakers
-     WHERE slug = $1`,
-    [args.slug.trim().toLowerCase()],
-  );
-  if (speakerRows.length === 0) {
+  //    Spomene dohvaćamo UVIJEK i paralelno — oni su drugi izvor identiteta,
+  //    pa i osoba bez speakers reda može imati profil.
+  const [{ rows: speakerRows }, mentionRows] = await Promise.all([
+    deps.pg.query<SpeakerRow>(
+      `SELECT canonical_name, slug, avatar_url, aliases
+       FROM speakers
+       WHERE slug = $1`,
+      [slug],
+    ),
+    fetchMentionRows(deps.pg, slug),
+  ]);
+
+  const person = speakerRows[0] ?? null;
+  if (person === null && mentionRows.length === 0) {
+    // Ni govori ni spominje se — tek tada je osoba stvarno nepoznata.
     throw new PersonNotFoundError(args.slug);
   }
-  const person = speakerRows[0]!;
+
   // aliases dolazi kao jsonb → već je JS array of string.
-  const aliases = Array.isArray(person.aliases) ? person.aliases : [];
+  const aliases = Array.isArray(person?.aliases) ? person!.aliases : [];
   if (aliases.length === 0) {
-    // Osoba bez aliasa (ručni red bez CH povezivanja) → nema govora, ali može
-    // imati spomene. Prazan govor-hub + eventualni mentions, ne crash.
-    const mentions = await fetchMentions(deps.pg, person.slug, new Set());
+    // Nema diariziranog govora: ili osoba bez speakers reda (spominje se, nikad
+    // nije bila gost), ili ručni speakers red bez CH povezivanja. U oba slučaja
+    // hub se gradi SAMO iz spomena — prazan govor-dio, ne 404.
+    const mentions = toMentions(mentionRows, new Set());
+    const agg = aggregate(mentions);
     return {
-      name: person.canonical_name,
-      slug: person.slug,
-      avatar_url: person.avatar_url,
+      name: person?.canonical_name ||
+        pickMentionName(mentionRows) ||
+        titleizeSlug(slug),
+      slug: person?.slug ?? slug,
+      avatar_url: person?.avatar_url ?? null,
       channel_count: 0,
       episode_count: 0,
       channels: [],
@@ -204,6 +297,8 @@ export async function getPerson(
       timeline: [],
       mentions,
       mention_episode_count: mentions.length,
+      mention_channels: agg.channels,
+      mention_timeline: agg.timeline,
     };
   }
 
@@ -246,33 +341,18 @@ export async function getPerson(
 
   // 3. channels[] + timeline[] agregirani u JS-u iz punog seta epizoda
   //    (max ~150 po osobi → jeftino, jedan CH round-trip).
-  const channelCounts = new Map<string, number>();
-  const monthCounts = new Map<string, number>();
-  for (const ep of episodes) {
-    channelCounts.set(ep.channel, (channelCounts.get(ep.channel) ?? 0) + 1);
-    const month = ep.upload_date.slice(0, 7); // YYYY-MM
-    if (/^\d{4}-\d{2}$/.test(month)) {
-      monthCounts.set(month, (monthCounts.get(month) ?? 0) + 1);
-    }
-  }
-
-  const channels = [...channelCounts.entries()]
-    .map(([channel, count]) => ({ channel, count }))
-    .sort((a, b) => b.count - a.count || a.channel.localeCompare(b.channel));
-
-  const timeline = [...monthCounts.entries()]
-    .map(([month, count]) => ({ month, count }))
-    .sort((a, b) => a.month.localeCompare(b.month));
+  const { channels, timeline } = aggregate(episodes);
 
   // 4. Mentions: epizode gdje se osoba SPOMINJE ali NE govori. Izbaci sve
   //    youtube_id koji su već u episodes[] (govori ima prednost).
   const speakingIds = new Set(episodes.map((e) => e.youtube_id));
-  const mentions = await fetchMentions(deps.pg, person.slug, speakingIds);
+  const mentions = toMentions(mentionRows, speakingIds);
+  const mentionAgg = aggregate(mentions);
 
   return {
-    name: person.canonical_name,
-    slug: person.slug,
-    avatar_url: person.avatar_url,
+    name: person!.canonical_name,
+    slug: person!.slug,
+    avatar_url: person!.avatar_url,
     channel_count: channels.length,
     episode_count: episodes.length,
     channels,
@@ -280,5 +360,7 @@ export async function getPerson(
     timeline,
     mentions,
     mention_episode_count: mentions.length,
+    mention_channels: mentionAgg.channels,
+    mention_timeline: mentionAgg.timeline,
   };
 }

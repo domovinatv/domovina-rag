@@ -242,6 +242,17 @@ const ASSERTIONS = {
       : `field '${dotted}' = ${cur}, expected number >= ${minVal}`;
   },
 
+  object_field_path_number_max: (p, [dotted, maxVal]) => {
+    const parts = dotted.split(".");
+    let cur = p;
+    for (const part of parts) {
+      cur = cur?.[part];
+    }
+    return typeof cur === "number" && cur <= maxVal
+      ? null
+      : `field '${dotted}' = ${cur}, expected number <= ${maxVal}`;
+  },
+
   object_has_array_field: (p, field) =>
     p && Array.isArray(p[field])
       ? null

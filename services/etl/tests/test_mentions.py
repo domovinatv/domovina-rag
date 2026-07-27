@@ -147,9 +147,59 @@ def test_emit_carries_and_mins_mention_ts():
         [sys.executable, str(EMIT_SCRIPT)],
         input=tsv, capture_output=True, text=True, check=True,
     ).stdout
-    assert "'marko-perkovic-thompson','vid1','ch','T','2026-01-01'::date,190)" in out, out
-    assert "'ante-caljkusic','vid1','ch','T','2026-01-01'::date,0)" in out, out
-    assert "'ante-caljkusic','vid2','ch','T','2026-01-01'::date,120)" in out, out
+    assert "'marko-perkovic-thompson','vid1','ch','T','2026-01-01'::date,190," in out, out
+    assert "'ante-caljkusic','vid1','ch','T','2026-01-01'::date,0," in out, out
+    assert "'ante-caljkusic','vid2','ch','T','2026-01-01'::date,120," in out, out
+
+
+def test_emit_carries_person_name():
+    # person_name = sirovo ime s dijakritikom (display za osobe bez speakers reda).
+    # Kolizija varijanti u istom videu → leksikografski min (ASCII: 'A' < 'a').
+    tsv = (
+        "vid1\tch\t2026-01-01\tT\tŽeljka Markić\t10\n"
+        "vid2\tch\t2026-01-01\tT\tante čaljkušić\t10\n"
+        "vid2\tch\t2026-01-01\tT\tAnte Čaljkušić\t20\n"
+    )
+    out = subprocess.run(
+        [sys.executable, str(EMIT_SCRIPT)],
+        input=tsv, capture_output=True, text=True, check=True,
+    ).stdout
+    assert "person_name) VALUES" in out, out
+    assert ",10,'Željka Markić')" in out, out
+    assert ",10,'Ante Čaljkušić')" in out, out  # velika slova pobijedila
+
+
+def test_emit_merges_veneration_prefix():
+    # "bl. Ivan Merz" / "Blaženi Ivan Merz" / "Ivan Merz" = JEDNA osoba.
+    # Klerički naslov (don) se NE dira — dio je speakers slug konvencije.
+    tsv = (
+        "vid1\tch\t2026-01-01\tT\tbl. Ivan Merz\t10\n"
+        "vid2\tch\t2026-01-01\tT\tBlaženi Ivan Merz\t10\n"
+        "vid3\tch\t2026-01-01\tT\tIvan Merz\t10\n"
+        "vid4\tch\t2026-01-01\tT\tSv. Ivan Pavao II\t10\n"
+        "vid5\tch\t2026-01-01\tT\tdon Tomislav Lukač\t10\n"
+    )
+    out = subprocess.run(
+        [sys.executable, str(EMIT_SCRIPT)],
+        input=tsv, capture_output=True, text=True, check=True,
+    ).stdout
+    assert out.count("'ivan-merz'") == 3, out          # tri videa, jedan slug
+    assert "blazeni-ivan-merz" not in out, out
+    assert "bl-ivan-merz" not in out, out
+    assert "'ivan-pavao-ii'" in out, out               # sv. skinut
+    assert "'don-tomislav-lukac'" in out, out          # don NETAKNUT
+
+
+def test_strip_veneration_edge_cases():
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    from emit_person_mentions_sql import strip_veneration  # noqa: PLC0415
+
+    assert strip_veneration("bl. Ivan Merz") == "Ivan Merz"
+    assert strip_veneration("Blažena Djevica Marija") == "Djevica Marija"
+    assert strip_veneration("sveti Nikola Tavelić") == "Nikola Tavelić"
+    assert strip_veneration("Ivan Merz") == "Ivan Merz"
+    assert strip_veneration("Blaženi") == "Blaženi"          # ime JE prefiks → original
+    assert strip_veneration("Blaž Kraljević") == "Blaž Kraljević"  # NIJE prefiks
 
 
 def _main() -> int:

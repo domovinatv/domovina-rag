@@ -70,7 +70,8 @@ CREATE INDEX IF NOT EXISTS idx_speakers_aliases ON speakers USING gin (aliases);
 -- summary.mentioned_people). Puni scripts/sync-person-mentions.sh (full-refresh:
 -- DELETE + INSERT). Slug se računa istim ASCII-fold algoritmom kao speakers.slug,
 -- pa se whole-person joina u person hub. /api/person/{slug} čita ovu tablicu i
--- izbaci epizode u kojima osoba GOVORI (govori ima prednost). Vidi migrations/003.
+-- izbaci epizode u kojima osoba GOVORI (govori ima prednost). Osoba koja se SAMO
+-- spominje (nikad gost) dobiva hub iz ove tablice — vidi migrations/003+005.
 CREATE TABLE IF NOT EXISTS person_mentions (
     slug            TEXT NOT NULL,             -- ASCII-fold imena (isti algoritam kao speakers.slug)
     youtube_id      TEXT NOT NULL,
@@ -78,6 +79,7 @@ CREATE TABLE IF NOT EXISTS person_mentions (
     title           TEXT,
     upload_date     DATE,
     mention_ts      INT DEFAULT 0,             -- sekunda najranijeg spomena (article.json); 0 = cijela epizoda
+    person_name     TEXT,                      -- sirovo ime (dijakritika!) za display osobe bez speakers reda
     created_at      TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (slug, youtube_id)
 );

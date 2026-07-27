@@ -51,8 +51,9 @@ log() { echo "[mentions-sync $(date +%H:%M:%S)] $*"; }
 RAW_QUERY="SELECT youtube_id, channel, toString(upload_date), title, person, toString(mention_ts) FROM episode_mentions FINAL"
 
 # Idempotentni bootstrap sheme (cloud PG nema person_mentions do prve migracije;
-# IF NOT EXISTS je bezopasan svugdje). Mora se poklapati s init.sql + migrations/003+004.
-# ADD COLUMN IF NOT EXISTS nadogradi već-postojeću tablicu (mention_ts, migr. 004).
+# IF NOT EXISTS je bezopasan svugdje). Mora se poklapati s init.sql + migrations/003–005.
+# ADD COLUMN IF NOT EXISTS nadogradi već-postojeću tablicu (mention_ts migr. 004,
+# person_name migr. 005).
 read -r -d '' SCHEMA_SQL <<'SQL' || true
 CREATE TABLE IF NOT EXISTS person_mentions (
     slug TEXT NOT NULL, youtube_id TEXT NOT NULL, channel TEXT NOT NULL,
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS person_mentions (
     created_at TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (slug, youtube_id));
 ALTER TABLE person_mentions ADD COLUMN IF NOT EXISTS mention_ts INT DEFAULT 0;
+ALTER TABLE person_mentions ADD COLUMN IF NOT EXISTS person_name TEXT;
 CREATE INDEX IF NOT EXISTS idx_person_mentions_slug ON person_mentions(slug);
 SQL
 
