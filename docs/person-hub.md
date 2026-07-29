@@ -77,6 +77,11 @@ postoji samo lokalno — nikad se ne push-a u cloud CH):
 Slug se poklapa jer je isti fold: "Ante Čaljkušić" → `ante-caljkusic` i kao
 speaker i kao mention.
 
+> **Stanje korpusa i preostale rupe** (fragmentacija slugova po prezimenu,
+> nedostajući `speaking_seconds`/`duration_seconds`, `_unlisted`, pokrivenost
+> `mention_ts`) — izmjereno u `docs/person-data-gaps.md`. Pročitaj to prije nego
+> kreneš u F1/F2 iz plana virtualnih kanala.
+
 ### Mention-only profil (osoba koja nikad ne govori)
 
 Do 2026-07-27 `getPerson` je 404-ao ako nema `speakers` reda — a `speakers` se
