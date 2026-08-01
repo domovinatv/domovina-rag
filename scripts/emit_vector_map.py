@@ -2,9 +2,11 @@
 """Vector map — UMAP 2D projekcija chunk embeddinga za stats.domovina.ai.
 
 Pokreće se ISKLJUČIVO iz scripts/sync-vector-map.sh, unutar dedicated venva
-(.venv-vectormap: numpy + umap-learn) — jedina skripta u repou koja NIJE
-stdlib-only, jer UMAP nema stdlib zamjenu. Ulazi su pripremljeni fajlovi
-(docker exec izvoz iz lokalnog CH/PG), pa skripta nema DB ovisnosti.
+(.venv-vectormap: numpy + umap-learn) — jedna od dvije skripte u repou koje
+NISU stdlib-only (druga je emit_person_map.py), jer UMAP nema stdlib zamjenu.
+Ulazi su pripremljeni fajlovi (docker exec izvoz iz lokalnog CH/PG), pa skripta
+nema DB ovisnosti. Zajedničko s mapom osoba (kvantizacija, HDBSCAN, LLM
+imenovanje, nasljeđivanje labela) živi u scripts/vectormap_common.py.
 
 Ulazi:
   --raw       RowBinary izvoz iz CH, FIKSNI record (4119 B):
@@ -38,20 +40,24 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
 import sys
-import urllib.request
 from pathlib import Path
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from vectormap_common import (  # noqa: E402
+    find_clusters,
+    inherit_labels,
+    make_log,
+    name_clusters,
+    quantize,
+)
+
 EMB_DIM = 1024
 REC = 11 + 2 + 8 + 2 + 4 * EMB_DIM  # 4119
 
-
-def log(msg: str) -> None:
-    sys.stderr.write(f"[emit_vector_map] {msg}\n")
+log = make_log("emit_vector_map")
 
 
 def _pg_unescape(s: str) -> str:
@@ -87,90 +93,8 @@ def load_raw(path: Path):
     return yids, start[keep], emb[keep]
 
 
-def quantize(x: np.ndarray) -> np.ndarray:
-    """Float koordinate (bilo koje dim.) → uint16 [0,65535], očuvan aspect ratio,
-    kraće osi centrirane da oblak ne "visi" u kutu."""
-    mins = x.min(axis=0)
-    span = float(max(x.max(axis=0) - mins))
-    span = span or 1.0
-    q = np.clip((x - mins) / span * 65535.0, 0, 65535)
-    for ax in range(x.shape[1]):
-        q[:, ax] += (65535 - q[:, ax].max()) / 2
-    return q.round().astype(np.uint16)
-
-
-def find_clusters(xy: np.ndarray, n: int, mcs: int) -> np.ndarray:
-    """HDBSCAN nad 2D layoutom (standard: datamapplot/Nomic). -1 = šum.
-
-    `leaf` selekcija namjerno: `eom` na UMAP layoutu kolapsira sve u 1-2
-    megaklastera (izmjereno na 136k točaka: eom=2, leaf=60 klastera). Visok
-    udio šuma (~60%) je OK — klasteri služe samo kao SIDRA za labele tema,
-    šum-točke se normalno crtaju."""
-    from sklearn.cluster import HDBSCAN  # sklearn je već dep umap-learna
-
-    lab = HDBSCAN(min_cluster_size=mcs, cluster_selection_method="leaf").fit_predict(xy)
-    k = int(lab.max()) + 1
-    log(f"HDBSCAN: {k} klastera (min_cluster_size={mcs}, šum: {int((lab < 0).sum())} točaka)")
-    return lab
-
-
-def _gemini_vertex(prompt: str) -> str:
-    """Vertex AI REST (isti endpoint/auth kao producer summarize_gemini.js)."""
-    project = os.environ["VERTEX_PROJECT"]
-    location = os.environ.get("VERTEX_LOCATION", "global")
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    acct = os.environ.get("VERTEX_ACCOUNT")
-    cmd = ["gcloud", "auth", "print-access-token"] + ([f"--account={acct}"] if acct else [])
-    token = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True).stdout.strip()
-    host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
-    url = (
-        f"https://{host}/v1/projects/{project}/locations/{location}"
-        f"/publishers/google/models/{model}:generateContent"
-    )
-    body = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
-    }
-    req = urllib.request.Request(
-        url, data=json.dumps(body).encode(), method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.load(resp)
-    return data["candidates"][0]["content"]["parts"][0]["text"]
-
-
-def _gemini_cli(prompt: str) -> str:
-    """gemini CLI fallback (isti pattern kao producerov callGeminiCli) — radi
-    kad je Vertex billing ugašen (BILLING_DISABLED na domovina-sync-ms)."""
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    res = subprocess.run(
-        ["gemini", "-m", model, "-o", "text", "--skip-trust",
-         "-p", "Slijedi upute iz inputa. Vrati ISKLJUČIVO valjan JSON, bez markdown code blokova."],
-        input=prompt, capture_output=True, text=True, timeout=300, check=True,
-    )
-    return res.stdout
-
-
-def name_clusters(title_lists: list[list[str]], fine: bool = False, tchars: int = 110) -> list[str] | None:
-    """LLM imenovanje u BATCHEVIMA od 60 klastera (na 240 odjednom model gubi
-    brojanje — vraćao 196/240 labela). Failani batch → prazne labele (caller ih
-    naslijedi iz prethodnog snapshota); None samo ako NIŠTA nije imenovano."""
-    BATCH = 60
-    out: list[str] = []
-    for s in range(0, len(title_lists), BATCH):
-        batch = title_lists[s : s + BATCH]
-        labels = _name_batch(batch, fine, tchars)
-        out += labels if labels else [""] * len(batch)
-    return out if any(out) else None
-
-
-def _name_batch(title_lists: list[list[str]], fine: bool, tchars: int) -> list[str] | None:
-    """Jedan LLM poziv: po klasteru lista naslova → 1-3 riječi HR tema. Backend:
-    Vertex (default) s fallbackom na gemini CLI; GEMINI_BACKEND=cli forsira CLI."""
-    numbered = "\n".join(
-        f"{i}: " + " | ".join(t[:tchars] for t in titles) for i, titles in enumerate(title_lists)
-    )
+def _naming_intro(fine: bool) -> str:
+    """Zadatak za LLM; iza njega vectormap_common lijepi numerirani popis + JSON envelope."""
     kind = (
         "što SPECIFIČNIJU podtemu (razina detalja: \"Krunica i pobožnosti\", "
         "\"Izbori u Zagrebu\", \"Rukometne legende\")"
@@ -178,32 +102,12 @@ def _name_batch(title_lists: list[list[str]], fine: bool, tchars: int) -> list[s
         "kratak naziv GLAVNE teme (razina detalja: \"Vjera i Crkva\", \"Rat u Ukrajini\", "
         "\"Domaća politika\")"
     )
-    prompt = (
+    return (
         "Dolje su klasteri semantički sličnih isječaka hrvatskih podcasta; za svaki su "
         f"navedeni najčešći naslovi epizoda. Za SVAKI klaster vrati {kind} na "
         "hrvatskom — 1-3 riječi, imenska fraza, bez navodnika i interpunkcije. "
-        "Nazivi neka budu međusobno što raznolikiji.\n\n"
-        f"{numbered}\n\n"
-        'Odgovori ISKLJUČIVO JSON objektom: {"labels": ["naziv za 0", "naziv za 1", ...]} '
-        f"s točno {len(title_lists)} elemenata, istim redom."
+        "Nazivi neka budu međusobno što raznolikiji."
     )
-    backends = [("gemini-cli", _gemini_cli)] if os.environ.get("GEMINI_BACKEND", "").lower() == "cli" \
-        else [("vertex", _gemini_vertex), ("gemini-cli", _gemini_cli)]
-    if not os.environ.get("VERTEX_PROJECT"):
-        backends = [b for b in backends if b[0] != "vertex"]
-    for name, fn in backends:
-        try:
-            text = fn(prompt).strip()
-            text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-            labels = json.loads(text)["labels"]
-            if not isinstance(labels, list) or len(labels) != len(title_lists):
-                raise ValueError(f"očekivano {len(title_lists)} labela, dobiveno {len(labels)}")
-            log(f"imenovanje preko {name} OK")
-            return [str(x).strip() for x in labels]
-        except Exception as e:  # noqa: BLE001
-            log(f"WARN: {name} imenovanje palo ({e})")
-    log("WARN: nijedan LLM backend nije uspio — clusters se izostavljaju")
-    return None
 
 
 def main() -> int:
@@ -319,7 +223,7 @@ def main() -> int:
     LEVELS = [(max(150, n // 600), 60, 12, 110, False),
               (max(60, n // 2000), 240, 8, 90, True)]
     for lvl, (mcs, cap, n_titles, tchars, fine) in enumerate(LEVELS):
-        clab = find_clusters(xy, n, mcs)
+        clab = find_clusters(xy, mcs, log)
         k = int(clab.max()) + 1
         if k == 0:
             continue
@@ -332,26 +236,12 @@ def main() -> int:
             top = eps[np.argsort(-cnt)][:n_titles]
             title_lists.append([episodes[e][2] or episodes[e][0] for e in top])
             eps_lists.append([episodes[e][0] for e in top[:10]])
-        labels = name_clusters(title_lists, fine=fine, tchars=tchars) or [""] * len(title_lists)
+        payloads = [" | ".join(t[:tchars] for t in titles) for titles in title_lists]
+        labels = name_clusters(payloads, _naming_intro(fine), log=log) or [""] * len(title_lists)
 
         # Nasljeđivanje iz prethodnog snapshota (ista razina) za neimenovane.
-        inherited = 0
-        prev_lvl = [pc for pc in prev_clusters if pc.get("l", 0) == lvl and pc.get("label")]
-        if prev_lvl and not all(labels):
-            for i, label in enumerate(labels):
-                if label:
-                    continue
-                mine = set(eps_lists[i])
-                best, best_ov = "", 2  # traži bar 3 zajedničke top-epizode
-                for pc in prev_lvl:
-                    ov = len(mine & set(pc.get("eps", [])))
-                    if ov > best_ov:
-                        best, best_ov = pc["label"], ov
-                if best:
-                    labels[i] = best
-                    inherited += 1
-        if inherited:
-            log(f"lvl{lvl}: {inherited} labela naslijeđeno iz prethodnog snapshota")
+        prev_lvl = [pc for pc in prev_clusters if pc.get("l", 0) == lvl]
+        inherit_labels(labels, eps_lists, prev_lvl, "eps", log=make_log(f"emit_vector_map lvl{lvl}"))
 
         lvl_clusters = []
         for i, c in enumerate(order):

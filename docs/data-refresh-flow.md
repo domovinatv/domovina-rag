@@ -87,7 +87,10 @@ flowchart TD
     SPKLOCAL --> SPKCLOUD["sync-speakers.sh --cloud<br/>(cloud person hub)"]
     SPKCLOUD --> PMLOCAL["sync-person-mentions.sh<br/>(lokalni person_mentions)"]
     PMLOCAL --> PMCLOUD["sync-person-mentions.sh --cloud<br/>(cloud person_mentions)"]
-    PMCLOUD --> DONE(["log + exit"])
+    PMCLOUD --> VMAP["sync-vector-map.sh<br/>(mapa isječaka, 7a)"]
+    VMAP --> PMAP["sync-person-map.sh<br/>(mapa osoba, 7b)"]
+    PMAP --> STATS["sync-stats.sh --cloud --deploy<br/>(stats.json + obje mape → CF Pages)"]
+    STATS --> DONE(["log + exit"])
     RC -- ne --> DONE
 
     style SYNC fill:#1a365d,color:#fff
@@ -97,7 +100,16 @@ flowchart TD
     style SPKCLOUD fill:#1a3d3d,color:#fff
     style PMLOCAL fill:#1a3d3d,color:#fff
     style PMCLOUD fill:#1a3d3d,color:#fff
+    style VMAP fill:#3d2a5c,color:#fff
+    style PMAP fill:#3d2a5c,color:#fff
+    style STATS fill:#3d2a5c,color:#fff
 ```
+
+> **Snapshot-koraci (7a/7b/7) nisu derivat-tablice nego fajlovi.** Pišu u
+> `../domovina-stats/public/` i NIJEDAN nema `--cloud` mod — jedan
+> `sync-stats.sh --deploy` na kraju nosi sve u istom `wrangler` deployu. Zato
+> **mapa osoba mora ići iza koraka 6/6b** (čita svjež person hub) i **prije
+> koraka 7** (inače joj deploy pobjegne za jedan dan).
 
 > **person_mentions** je poseban: derivat je CH `episode_mentions`, ali izvor je
 > UVIJEK **lokalni** CH (`summary.mentioned_people` živi u lokalnom summary.json,
@@ -214,7 +226,10 @@ flowchart LR
         ME["Meili re-index<br/>sync-meili.sh ×2"]
         SP["Person hub<br/>sync-speakers.sh ×2"]
         PM["person_mentions<br/>sync-person-mentions.sh ×2"]
-        CH --> ME --> SP --> PM
+        VM["Mapa isječaka<br/>sync-vector-map.sh"]
+        PMAP["Mapa osoba<br/>sync-person-map.sh"]
+        ST["Stats + deploy<br/>sync-stats.sh --deploy"]
+        CH --> ME --> SP --> PM --> VM --> PMAP --> ST
     end
     subgraph MANUAL["RUČNO / na potrebu"]
         MCPD["MCP server (kod)<br/>Coolify Redeploy"]
@@ -231,6 +246,9 @@ flowchart LR
 | **Meilisearch** (keyword) | dnevno 04:00, nakon CH | launchd → `sync-meili.sh --local && --cloud` |
 | **Person hub** (PG speakers) | dnevno 04:00, nakon CH | launchd → `sync-speakers.sh --local && --cloud` |
 | **person_mentions** (PG, "spominje se u") | dnevno 04:00, nakon speakers | launchd → `sync-person-mentions.sh --local && --cloud` (izvor uvijek lokalni CH) |
+| **Mapa isječaka** (`vector-map.*`) | dnevno 04:00, nakon person huba | launchd → `sync-vector-map.sh` (preskače ako se broj chunkova nije promijenio; 5-10 min) |
+| **Mapa osoba** (`person-map.json`) | dnevno 04:00, nakon mape isječaka | launchd → `sync-person-map.sh` (preskače ako se chunkovi+spomeni nisu promijenili; ~30-50 s) |
+| **Stats dashboard** (`stats.json` + deploy) | dnevno 04:00, zadnji korak | launchd → `sync-stats.sh --cloud --deploy` → CF Pages (`stats.domovina.ai`) |
 | **MCP server** (kod) | ručni Coolify redeploy* | Coolify Application (rolling, zero-downtime) |
 | **Frontend** (domovina.ai) | ručno | `./scripts/deploy.sh` (wasm + wrangler Pages) |
 
@@ -257,6 +275,13 @@ cd ~/git/domovinatv/domovina-rag
 ./scripts/sync-speakers.sh --cloud     # cloud person hub
 ./scripts/sync-person-mentions.sh          # lokalni person_mentions ("spominje se u")
 ./scripts/sync-person-mentions.sh --cloud  # cloud person_mentions (izvor: lokalni CH)
+
+# Snapshoti za stats.domovina.ai (pišu u ../domovina-stats/public/, nema --cloud):
+./scripts/sync-vector-map.sh           # mapa isječaka (/map) — 5-10 min
+./scripts/sync-vector-map.sh --force   # gazi skip-if-unchanged
+./scripts/sync-person-map.sh           # mapa osoba (/people) — ~30-50 s
+./scripts/sync-person-map.sh --force
+./scripts/sync-stats.sh --cloud --deploy   # stats.json + deploy SVEGA na CF Pages
 ```
 
 ---
@@ -324,6 +349,8 @@ na samom VPS-u (veći zahvat, budući sprint).
 - `scripts/sync-incremental.sh`, `scripts/sync-meili.sh`, `scripts/sync-speakers.sh`, `scripts/sync-person-mentions.sh`, `scripts/sync-cron.sh`
 - `scripts/emit_speakers_sql.py` — CH TSV → PG UPSERT SQL (person hub)
 - `scripts/emit_person_mentions_sql.py` — CH `episode_mentions` TSV → PG full-refresh SQL (person_mentions)
+- `scripts/emit_vector_map.py`, `scripts/emit_person_map.py`, `scripts/vectormap_common.py` — snapshoti za stats dashboard
+- `docs/plans/2026-08-01-mapa-osoba.md` — plan i mjerenja iza mape osoba
 - `docs/person-hub.md` — person hub feature (govornik profili + "spominje se u")
 - `infra/launchd/tv.domovina.rag.sync.plist` — raspored
 - `meili-keys-and-frontend.md` — Meili ključevi + frontend wiring

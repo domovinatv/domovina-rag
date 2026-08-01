@@ -120,6 +120,17 @@ if [ "$RC" -eq 0 ]; then
   ./scripts/sync-vector-map.sh || echo "[cron] WARN: vector map regeneracija pala (nastavljam)."
 fi
 
+# ─── 7b. Regeneriraj mapu osoba (UMAP nad embeddinzima osoba) ─────────────────
+# person-map.json je derivat CH-a (centroidi) I person huba (tko je uopće osoba),
+# pa MORA ići iza koraka 6 i 6b — inače crta jučerašnji hub. Izvor je lokalni CH
+# + lokalni PG; centroide računa sam ClickHouse (avgForEach), pa je cijeli run
+# ~30-50 s naspram 5-10 min za mapu isječaka. Skripta sama PRESKAČE ako se broj
+# chunkova + spomena nije promijenio. Kao 7a, mora PRIJE koraka 7 (isti deploy).
+if [ "$RC" -eq 0 ]; then
+  echo "[cron] Regeneriram mapu osoba (lokalni CH+PG → domovina-stats/public)..."
+  ./scripts/sync-person-map.sh || echo "[cron] WARN: mapa osoba pala (nastavljam)."
+fi
+
 # ─── 7. Osvježi javni stats dashboard (derivat CH-a) ──────────────────────────
 # stats.json je derivat CH-a (agregati nad rag_chunks) kao Meili i speakers. Puni
 # ga sync-stats.sh i deploya na CF Pages (stats.domovina.ai). Consumer je zaseban
