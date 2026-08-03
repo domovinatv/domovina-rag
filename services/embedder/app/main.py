@@ -22,7 +22,22 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 
 _MAX_BATCH = int(os.environ.get("EMBEDDER_MAX_BATCH", "256"))
-_MAX_TEXT_LEN = int(os.environ.get("EMBEDDER_MAX_TEXT_LEN", "8192"))
+
+# Gruba brana prije tokenizacije — samo da se ne tokenizira patološki input
+# (npr. slučajno poslan cijeli fajl). Pravi limit je u tokenima, vidi /embed.
+_MAX_TEXT_CHARS = int(os.environ.get("EMBEDDER_MAX_TEXT_CHARS", "500000"))
+
+# `EMBEDDER_MAX_TEXT_LEN` je UKINUT: rezao je po znakovima, a trošak je po
+# tokenima. Za hrvatski je ~3,9 znaka/token, pa je limit od 8192 znaka propuštao
+# tek ~2100 tokena — četvrtinu onoga što model podnosi — i odbijao 136 legitimnih
+# chunkova. Ako je varijabla ostala u nečijem env-u, reci to naglas umjesto da
+# tiho ne radi ništa.
+if os.environ.get("EMBEDDER_MAX_TEXT_LEN"):
+    log.warning(
+        "EMBEDDER_MAX_TEXT_LEN=%s se IGNORIRA — limit je sada memorijski budžet "
+        "(EMBEDDER_MEM_BUDGET_GB). Makni ju iz env-a.",
+        os.environ["EMBEDDER_MAX_TEXT_LEN"],
+    )
 
 
 class EmbedRequest(BaseModel):
@@ -73,12 +88,29 @@ def embed(req: EmbedRequest) -> EmbedResponse:
             detail=f"batch_size {len(req.texts)} > max {_MAX_BATCH}",
         )
     for i, t in enumerate(req.texts):
-        if len(t) > _MAX_TEXT_LEN:
+        if len(t) > _MAX_TEXT_CHARS:
             raise HTTPException(
                 status_code=413,
-                detail=f"texts[{i}] length {len(t)} > max {_MAX_TEXT_LEN}",
+                detail=f"texts[{i}] chars {len(t)} > max {_MAX_TEXT_CHARS}",
             )
 
     e: Embedder = app.state.embedder
+
+    # Tekst koji ne stane u budžet ni sam (batch=1) je jedini tvrdi 413. Ostalo
+    # embedder posloži u više prolaza — dugi chunk usporava, ali ne odbija.
+    lengths = e.token_lengths(req.texts)
+    limit = e.max_tokens
+    too_long = [(i, n) for i, n in enumerate(lengths) if n > limit]
+    if too_long:
+        i, n = too_long[0]
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"texts[{i}] tokens {n} > max {limit} "
+                f"(memorijski budžet {e.budget_bytes / 1e9:.1f} GB; "
+                f"ukupno predugih: {len(too_long)})"
+            ),
+        )
+
     vectors = e.encode(req.texts)
     return EmbedResponse(vectors=vectors, model=e.model_name, dim=len(vectors[0]))

@@ -19,7 +19,15 @@ Body: {"texts": ["string1", "string2", ...]}
 → {"vectors": [[1024 float32, L2-normalized], ...]}
 ```
 
-`texts` može imati 1..N stringova, svaki max `EMBEDDER_MAX_TEXT_LEN` znakova (default 8192, override-aj na 32768 za podcast chunkove).
+`texts` može imati 1..N stringova. Limit NIJE broj znakova nego memorijski
+budžet: attention košta `≈ 244 × batch × n²` bajtova (n = tokena), pa embedder
+sam slaže tekstove u više prolaza da ostane ispod `EMBEDDER_MEM_BUDGET_GB`.
+
+413 dobiješ samo ako tekst ne stane ni **sam** (`n > √(budžet / 244)`, pri 4,5 GB
+to je 4295 tokena) ili ako batch prelazi `EMBEDDER_MAX_BATCH`. Redoslijed
+vektora uvijek odgovara redoslijedu ulaza, bez obzira na interno grupiranje.
+
+Vidi `docs/mps-embedder-memory.md` §6.
 
 ## Stack
 
@@ -36,7 +44,9 @@ Body: {"texts": ["string1", "string2", ...]}
 | `EMBEDDER_DEVICE` | `cpu` | `cpu`, `cuda`, ili `mps` (Apple Silicon) |
 | `EMBEDDER_BATCH_SIZE` | `32` | Internal SentenceTransformer batch size |
 | `EMBEDDER_MAX_BATCH` | `256` | Max strings u jednom `/embed` POST-u |
-| `EMBEDDER_MAX_TEXT_LEN` | `8192` | Char limit per text (bge-m3 token ctx je 8192) |
+| `EMBEDDER_MEM_BUDGET_GB` | `4.5` | Budžet nad `244 × batch × n²`; iz njega ispada limit tokena po tekstu |
+| `EMBEDDER_MAX_TEXT_CHARS` | `500000` | Gruba brana prije tokenizacije (ne zamjena za budžet) |
+| ~~`EMBEDDER_MAX_TEXT_LEN`~~ | — | **Ukinut** — rezao po znakovima umjesto po tokenima. Ostane li u env-u, ignorira se uz WARNING |
 | `EMBEDDER_WARMUP` | `1` | Eager load model on boot (=1) ili lazy (=0) |
 | `LOG_LEVEL` | `INFO` | Standard Python logging |
 
@@ -78,7 +88,7 @@ python3 -m venv .venv
                      sentencepiece
 
 # Pokreni (na svaki dev start)
-EMBEDDER_DEVICE=mps EMBEDDER_MAX_TEXT_LEN=32768 \
+EMBEDDER_DEVICE=mps \
   .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 

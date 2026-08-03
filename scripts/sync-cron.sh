@@ -59,11 +59,13 @@ if ! curl -s -m 5 http://localhost:8000/health 2>/dev/null | grep -q '"loaded":t
   echo "[cron] Embedder nije gore — pokrećem MPS host embedder..."
   pkill -9 -f "uvicorn app.main" 2>/dev/null || true
   sleep 1
-  # MAX_TEXT_LEN=8192 (ne 32768): attention je O(n²) po duljini; predugi chunkovi
-  # su rušili MPS HeapAllocator (SIGSEGV u scaled_dot_product_attention) jer je na
-  # M4 Pro 24 GB unified dijeljen s Dockerom (14 GB). 8192 drži GPU buffer malim.
+  # Limit je MEMORIJSKI BUDŽET, ne broj znakova. Attention drži tenzor
+  # (batch, glave, n, n) u float32 → peak ≈ 244 × batch × n²; trošak je kvadratan
+  # po duljini, a linearan po batchu, pa embedder sam slaže prolaze da ostane
+  # ispod budžeta (app/model.py). Default 4,5 GB = izmjereni peak stare, dokazano
+  # stabilne postavke. Vidi docs/mps-embedder-memory.md §6.
   ( cd services/embedder && \
-    EMBEDDER_DEVICE=mps EMBEDDER_MAX_TEXT_LEN=8192 \
+    EMBEDDER_DEVICE=mps \
     nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 \
     >"$REPO/.ingest-logs/embedder-host.log" 2>&1 & )
   # Čekaj model load (do 90s)

@@ -114,7 +114,7 @@ docker compose up -d postgres clickhouse
 
 # MPS host embedder workflow (Apple Silicon dev)
 # Terminal 1: embedder na hostu (vidi memory/project-mps-embedder-host)
-cd services/embedder && EMBEDDER_DEVICE=mps EMBEDDER_MAX_TEXT_LEN=32768 \
+cd services/embedder && EMBEDDER_DEVICE=mps \
   .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 # Terminal 2: MCP container koji zove host embedder
 # (.env mora imati EMBEDDER_URL=http://host.docker.internal:8000)

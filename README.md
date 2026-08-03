@@ -130,7 +130,7 @@ docker compose up -d postgres clickhouse
 
 # Terminal 2: host embedder na MPS GPU
 cd services/embedder
-EMBEDDER_DEVICE=mps EMBEDDER_MAX_TEXT_LEN=32768 \
+EMBEDDER_DEVICE=mps \
   .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # Terminal 3: ETL koji zove host embedder

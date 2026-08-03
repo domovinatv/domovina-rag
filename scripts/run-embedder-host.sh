@@ -30,7 +30,9 @@ fi
 # svakog batcha. Vidi lessons-mps-embedder-segfault + docs/mps-embedder-memory.md.
 export EMBEDDER_DEVICE=mps
 export EMBEDDER_MODEL=BAAI/bge-m3
-export EMBEDDER_MAX_TEXT_LEN=8192
+# EMBEDDER_MAX_TEXT_LEN je ukinut — rezao je po znakovima, a trošak je po
+# tokenima (~3,9 znaka/token za HR), pa je odbijao valjane chunkove. Zamjena je
+# EMBEDDER_MEM_BUDGET_GB (default 4,5); embedder sam slaže prolaze ispod budžeta.
 export EMBEDDER_BATCH_SIZE=8
 
 # Logging level (INFO default; DEBUG za debug).

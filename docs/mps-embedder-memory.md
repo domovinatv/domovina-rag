@@ -188,7 +188,88 @@ kitovi na internom disku); MPS se rješava upravljanjem memorijom. Ne miješaj i
 
 ---
 
-## 6. Kad ipak razmisliti o hardveru
+## 6. Limit po tokenima, ne po znakovima (2026-08-03)
+
+Fix iz §4 (`EMBEDDER_MAX_TEXT_LEN=8192`) zaustavio je padove, ali je uveo tihu
+cijenu: **75 epizoda se od 14.07. uopće nije uspjelo ingestirati.** U cron logu
+je to bilo `413 Content Too Large` uz `Greška na … — nastavljam dalje`, pa je
+izgledalo kao rubni slučaj, a bilo je 2061 chunk.
+
+### Zašto je limit u znakovima bio kriva mjera
+
+`len(text)` nije ono što košta — košta broj **tokena**. Za hrvatski je omjer
+~3,9 znaka/token, pa je limit od 8192 znaka propuštao tek **~2100 tokena**, dok
+bge-m3 podnosi 8192. Rezali smo na četvrtini kapaciteta modela.
+
+Mjereno nad 136 odbijenih chunkova: **nijedan ne prelazi model** — najdulji ima
+7877 tokena. Svi su bili odbijeni mjerom koja s modelom nema veze.
+
+### Ali podizanje limita nije rješenje — to je izmjereno na teži način
+
+| konfiguracija | ishod |
+|---|---|
+| batch=1, n=7877 tokena | prošlo, 15,9 s, **MPS driver peak 15,13 GB** |
+| batch=4, n=7877 tokena | `RuntimeError: Invalid buffer size: 14.80 GiB` |
+| batch=4, n=2100 tokena | 4,30 GB — stara postavka, stabilna tjednima |
+
+Prvi red je **zamrznuo stroj**: 15,13 GB na 26 GB unified od kojih Docker drži
+14,6 GB znači da OS nema što osloboditi → kompresor + swap.
+
+Iz toga izlazi model troška. Attention drži `(batch, glave, n, n)` u float32,
+bge-m3 ima 16 glava, a unutar koraka živi ~3,8 kopija:
+
+```
+peak_bytes ≈ 16 × 4 × 3,81 × batch × n²  ≈  244 × batch × n²
+```
+
+**Trošak je kvadratan po duljini, a linearan po batchu.** Limit zato ne može biti
+broj po tekstu — mora biti budžet nad `batch × n²`.
+
+### Treća zamka: padding na najdulji u batchu
+
+`SentenceTransformer.encode` padira **cijeli batch na najdulji član**. Batch od 4
+u kojem je jedan chunk od 7877 tokena košta kao četiri takva, i to je točno ono
+što je srušilo stroj pri mjerenju. Zato `model.py` sortira silazno prije
+grupiranja — slični završe zajedno i padding se ne plaća.
+
+### Što je sada
+
+| Lever | Vrijednost | Uloga |
+|---|---|---|
+| `EMBEDDER_MEM_BUDGET_GB` | **4,5** (host MPS), 8 (CPU kontejner) | budžet nad `244 × batch × n²` |
+| `EMBEDDER_MAX_TEXT_LEN` | **ukinut** | ako ostane u env-u → WARNING, ignorira se |
+| `EMBEDDER_MAX_TEXT_CHARS` | 500000 | gruba brana da se ne tokenizira cijeli fajl |
+
+Default 4,5 GB nije procjena nego **izmjereni peak stare, dokazano stabilne
+postavke** (batch 4 × 2100 tokena = 4,30 GB). Između nje i 15,13 GB nema
+mjerenja, pa default ostaje na donjoj — podigni ga tek kad se potvrdi stabilnost.
+
+Iz budžeta ispada tvrdi limit `n ≤ √(budžet / 244)` = **4295 tokena**; tekst
+iznad toga ne stane ni sam i jedini je preostali 413.
+
+### Učinak
+
+| | prije | poslije |
+|---|---|---|
+| chunkova koji prolaze (od 2061) | 1925, ali **odbačeni s epizodom** | **2058 (99,9 %)** |
+| epizoda u korpusu | 0 od 75 | 72 potpuno, 3 djelomično |
+
+Drugi dio dobitka je u ETL-u: `embed_lenient` (`services/etl/etl/embed.py`) na
+413 degradira batch na pojedinačne pozive i preskoči **samo** krivi chunk, uz
+`WARNING` s `youtube_id`. Prije je jedan predugi chunk odbacivao cijelu epizodu.
+Guta se isključivo 413 — 500 i connection error i dalje pucaju, jer bi tiho
+preskakanje proizvelo epizodu s nevidljivim rupama.
+
+### Što ostaje
+
+Tri chunka i dalje ne prolaze jer su `topic_transcript` segmenti od ~30 minuta
+(`00:20:30–00:50:00` u jednom komadu, 118 od 136 predugih dolazi s `subclub`).
+To je **producerov** posao — chunker u `fetch.domovina.tv` ne bi smio emitirati
+polusatni chunk, koji je uz to i loš rezultat pretrage.
+
+---
+
+## 7. Kad ipak razmisliti o hardveru
 
 24 GB M4 Pro je **dovoljan** za dnevni delta-embed s bge-m3 kad je memorija
 upravljana. Više RAM-a (48-64 GB) je *nice-to-have*, ne nužnost, i to tek za:

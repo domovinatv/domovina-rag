@@ -63,6 +63,51 @@ class EmbedderClient:
                 break
         raise last_exc if last_exc else RuntimeError("embed failed without exception")
 
+    def embed_lenient(self, texts: list[str]) -> tuple[list[list[float] | None], list[int]]:
+        """Kao `embed`, ali 413 ubija samo krivi tekst — ne cijeli batch.
+
+        Vraća `(vektori, preskočeni_indeksi)`; preskočeni imaju `None` na svom
+        mjestu, pa se poredak čuva i caller ih može jednostavno izostaviti.
+
+        Zašto postoji: embedder vraća 413 za tekst koji ne stane u memorijski
+        budžet ni sam. Prije je taj jedan chunk rušio cijeli `load_file`, pa je
+        epizoda ispadala iz korpusa u cijelosti — 75 epizoda i 1925 ispravnih
+        chunkova izgubljeno zbog 136 predugih. Jedan loš chunk sada košta taj
+        chunk, a ne epizodu.
+
+        Ne guta ništa osim 413: svaki drugi status i dalje puca, jer 500 ili
+        connection error znače da embedder nije zdrav i tiho preskakanje bi
+        proizvelo epizodu s rupama koje nitko ne bi primijetio.
+        """
+        if not texts:
+            return [], []
+        try:
+            return list(self.embed(texts)), []
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 413:
+                raise
+
+        # Batch je odbijen zbog bar jednog predugog teksta — nađi koje, po jedan.
+        vectors: list[list[float] | None] = []
+        skipped: list[int] = []
+        for i, t in enumerate(texts):
+            try:
+                vectors.append(self.embed([t])[0])
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code != 413:
+                    raise
+                detail = ""
+                try:
+                    detail = e.response.json().get("detail", "")
+                except Exception:
+                    pass
+                log.warning(
+                    "chunk preskočen (413): %d znakova — %s", len(t), detail
+                )
+                vectors.append(None)
+                skipped.append(i)
+        return vectors, skipped
+
     def close(self) -> None:
         self._client.close()
 

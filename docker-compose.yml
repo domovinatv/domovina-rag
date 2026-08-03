@@ -72,10 +72,11 @@ services:
     environment:
       EMBEDDER_MODEL: ${EMBEDDER_MODEL}
       EMBEDDER_DEVICE: ${EMBEDDER_DEVICE}
-      # bge-m3 native ctx = 8192 *tokenova* (~24-32K znakova HR teksta).
-      # Char-based limit u embedder app/main.py je samo safety margin;
-      # default 8192 chars je prerigorozan i odbija valjane chunkove.
-      EMBEDDER_MAX_TEXT_LEN: "32768"
+      # Limit je memorijski budžet, ne broj znakova — bge-m3 ctx je 8192
+      # *tokenova* (~32K znakova HR), a attention košta 244 × batch × n².
+      # Embedder sam slaže prolaze ispod budžeta (app/model.py). CPU kontejner
+      # nema MPS-ovu unified-memory zamku, pa smije više nego host embedder.
+      EMBEDDER_MEM_BUDGET_GB: "8"
     volumes:
       - hf_cache:/root/.cache/huggingface
     # `web` je potreban za prvi run jer sentence-transformers povlači

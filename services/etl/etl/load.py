@@ -92,16 +92,20 @@ def load_file(
         upload_date = _dt.date(1970, 1, 1)
     channel = meta.channel_slug
 
+    skipped_chunks = 0
     for batch in _batched(stream_chunks(jsonl), batch_size):
         texts = [c.text for c in batch]
-        vectors = embedder.embed(texts)
+        vectors, skipped = embedder.embed_lenient(texts)
         if len(vectors) != len(batch):
             raise RuntimeError(
                 f"embedder vratio {len(vectors)} vektora za {len(batch)} tekstova"
             )
+        skipped_chunks += len(skipped)
 
         rows = []
         for c, vec in zip(batch, vectors):
+            if vec is None:
+                continue  # predug chunk — preskočen, epizoda ide dalje
             speaker = ",".join(c.speakers) if c.speakers else ""
             rows.append(
                 [
@@ -123,6 +127,19 @@ def load_file(
             )
         ch.insert_chunks(rows)
         inserted += len(rows)
+
+    # Djelomičan unos NE smije proći tiho — epizoda je u korpusu, ali nepotpuna,
+    # a to se ne vidi ni iz jednog agregata. WARNING nosi youtube_id da se
+    # pogođene epizode mogu izvući grepom iz cron loga.
+    if skipped_chunks:
+        log.warning(
+            "%s: %d chunk(ova) preskočeno (predugi za embedder) — epizoda unesena "
+            "s %d od %d chunkova",
+            meta.youtube_id,
+            skipped_chunks,
+            inserted,
+            inserted + skipped_chunks,
+        )
 
     # Mentions: osoba SPOMENUTA u epizodi (summary.mentioned_people[]), ne nužno
     # govornik. Best-effort — ako sidecar summary.json fali, samo preskoči.
