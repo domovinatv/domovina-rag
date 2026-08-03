@@ -1,5 +1,11 @@
 # Person hub — stanje podataka i preostale rupe
 
+> **Dopuna 01.08.2026.**: §2 je bio jedina nemjerena rupa i sad je zatvoren
+> (udio višegovornih chunkova + otkriće da 43 % korpusa uopće nema govornika).
+> Šire mjerenje istog korpusa iz perspektive „koliko osoba ima dovoljno signala"
+> je u `docs/plans/2026-08-01-mapa-osoba.md` §1 — ondje su brojke o univerzumu od
+> 18 252 sluga i o tome zašto prag od 3 epizode nije proizvoljan.
+
 Izmjereno **29.07.2026.** nad **produkcijskim** PG-om (`postgres-ddvxwyfmd2ynx…`
 na dom-001). Ovo je podatkovni pandan `docs/person-hub.md` (koji opisuje kako
 sustav radi) i planu `domovina.ai/docs/plans/virtualni-kanali.md` (koji opisuje
@@ -80,16 +86,32 @@ Brozović") — naivni `sum(end_ts - start_ts)` broji isti chunk punim trajanjem
 SVAKOM govorniku, pa panel-epizode napuhuju udio. Prag od 15 % je na to izravno
 osjetljiv.
 
-> Udio višegovornih chunkova **NIJE izmjeren** — 29.07. ClickHouse (container
-> `domovina-rag-infra-clickhouse-1`, status „Up, healthy") nije odgovorio ni na
-> jedan upit; dva su istekla nakon 60 s odnosno 120 s. Provjeriti zdravlje CH-a
-> prije nego se F2 uopće krene mjeriti:
+> **IZMJERENO 01.08.2026.** (CH je tada odgovorio bez problema; 29.07. nije
+> odgovarao ni na jedan upit, pa je ovo dotad stajalo kao nepoznanica):
 > ```sql
-> SELECT count() chunkova, countIf(position(speaker, ',') > 0) visegovorni
-> FROM rag_chunks;
+> SELECT chunk_strategy, count() n, countIf(speaker = '') prazan,
+>        countIf(position(speaker, ',') > 0) visegovorni
+> FROM rag_chunks WHERE length(youtube_id) = 11 GROUP BY chunk_strategy;
 > ```
-> Ako je udio netrivijalan, trajanje chunka treba dijeliti brojem govornika u
-> njemu ili mjeriti iz same diarizacije, ne iz chunk granica.
+>
+> | `chunk_strategy` | chunkova | bez govornika | višegovornih |
+> |---|---|---|---|
+> | `topic_transcript` | 83 383 | 0 | **50 793 (60,9 %)** |
+> | `article_summary` | 63 704 | **63 704 (100 %)** | 0 |
+>
+> Dva nalaza, oba mijenjaju plan za (2):
+>
+> 1. Udio višegovornih chunkova nije „netrivijalan" nego **dominantan (60,9 %)**.
+>    Naivni `sum(end_ts - start_ts)` po govorniku napuhuje udio na dvije trećine
+>    govornih chunkova — prag od 15 % je time neupotrebljiv bez korekcije.
+>    Trajanje chunka treba dijeliti brojem govornika u njemu ili mjeriti iz same
+>    diarizacije (per-cue SRT), ne iz chunk granica.
+> 2. **43 % korpusa uopće nema govornika**: `article_summary` chunkovi (sažeci)
+>    nikad nemaju `speaker`. Za svaki izračun temeljen na govoru postoji samo
+>    83 383 od 147 087 chunkova.
+>
+> Raspodjela broja govornika po govornom chunku: 1 → 32 590, 2 → 42 713,
+> 3 → 6 616, 4+ → 1 464.
 
 **Trajanje epizode** nema izvor:
 

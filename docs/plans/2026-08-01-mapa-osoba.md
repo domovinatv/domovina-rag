@@ -691,6 +691,9 @@ rezultata.
 
 ## Vezani dokumenti
 
+- `../2026-08-03-mapa-osoba-odluke-i-zamke.md` — **što je odlučeno i na što se
+  nabolo pri isporuci** (bez graf-baze i zašto, CF Pages propagacija, iOS
+  deep-link zamke, otvorene stavke)
 - `scripts/emit_vector_map.py`, `scripts/sync-vector-map.sh` — uzor pipelinea
 - `services/etl/etl/speakers.py` — `build_persons`, `slugify` (identitet)
 - `docs/person-hub.md` — kako person hub radi
