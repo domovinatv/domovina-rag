@@ -7,8 +7,10 @@
 # puni re-index svaki put je jednostavniji i dovoljno brz. Pokreće
 # scripts/meili-poc-index.py s odgovarajućim env varijablama.
 #
-# launchd daje minimalan PATH — prepend Homebrew/usr-local.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, node/npx,
+# gcloud i ostali alati nisu vidljivi. Razrješava ih zajednički lib.
+# shellcheck source=scripts/lib/cron-path.sh
+. "$(dirname "$0")/lib/cron-path.sh"
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

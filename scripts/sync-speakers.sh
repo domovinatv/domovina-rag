@@ -12,8 +12,10 @@
 # a PG puni preko `psql` — sve preko `docker exec` (lokalno) ili `ssh docker
 # exec` (cloud). Nema venva, nema tunela, nema per-row latencije.
 #
-# launchd daje minimalan PATH — prepend Homebrew/usr-local.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, node/npx,
+# gcloud i ostali alati nisu vidljivi. Razrješava ih zajednički lib.
+# shellcheck source=scripts/lib/cron-path.sh
+. "$(dirname "$0")/lib/cron-path.sh"
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -17,8 +17,10 @@
 #   scripts/sync-stats.sh --cloud            # cloud CH → stats.json (source="cloud")
 #   scripts/sync-stats.sh --cloud --deploy   # + npm build + wrangler pages deploy
 #
-# launchd daje minimalan PATH — prepend Homebrew/usr-local (docker, node, wrangler).
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, node/npx,
+# gcloud i ostali alati nisu vidljivi. Razrješava ih zajednički lib.
+# shellcheck source=scripts/lib/cron-path.sh
+. "$(dirname "$0")/lib/cron-path.sh"
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -118,7 +120,16 @@ if [ "$DEPLOY" -eq 1 ]; then
     exit 0
   fi
   log "Build + deploy na CF Pages ($PAGES_PROJECT)..."
-  ( cd "$STATS_REPO_DIR" && npm run build && \
-    npx wrangler pages deploy dist --project-name="$PAGES_PROJECT" )
+  ( cd "$STATS_REPO_DIR" && npm run build
+
+    # dist bez public/ ima ~8 fajlova (samo build output), s podacima ~74. Deploy
+    # praznog dista je tih: sajt se digne, ali svi grafovi i mape ostanu prazni.
+    n="$(find dist -type f | wc -l | tr -d ' ')"
+    [ "$n" -ge 20 ] || { echo "ERROR: dist ima samo $n fajlova — public/ je prazan, ne deployam." >&2; exit 1; }
+
+    # --branch main je OBAVEZAN: bez njega wrangler deploya na preview alias
+    # imena trenutne grane, produkcija se ne mijenja, a izlaz i dalje kaže
+    # "Success". Vidi ../domovina-stats/CLAUDE.md § Deploy.
+    npx wrangler pages deploy dist --project-name="$PAGES_PROJECT" --branch main )
   log "✅ Deploy gotov → stats.domovina.ai"
 fi

@@ -15,9 +15,10 @@
 # producer-side hook.
 set -uo pipefail
 
-# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, zstd i
-# ostali alati nisu vidljivi. Prepend Homebrew + /usr/local/bin.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, node/npx,
+# gcloud i ostali alati nisu vidljivi. Razrješava ih zajednički lib.
+# shellcheck source=scripts/lib/cron-path.sh
+. "$(dirname "$0")/lib/cron-path.sh"
 
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
@@ -28,6 +29,24 @@ exec >>"$LOG" 2>&1
 
 echo "════════════════════════════════════════════════════════════"
 echo "[cron $(date '+%Y-%m-%d %H:%M:%S')] sync-cron start"
+
+# Koraci 5-7 su best-effort: pad jednog ne smije srušiti ostatak ciklusa, pa svaki
+# završava s `|| warn "..."`. Ali WARN koji se samo ispiše usred 400 redaka loga je
+# nevidljiv — `sync-stats.sh --deploy` je tako padao tri tjedna ("npx nije
+# instaliran") dok je cron svaki dan uredno završavao s rc=0 i nitko nije imao
+# razloga otvoriti log. Zato se WARN-ovi broje i PONAVLJAJU u zadnjem retku, koji
+# je jedino što se realno gleda. Rc namjerno ostaje 0 — cilj je vidljivost, ne
+# rušenje ciklusa zbog npr. ugašenog lokalnog Meilija.
+# Bez nizova: launchd pokreće ovu skriptu preko /bin/bash (3.2), gdje je prazan
+# `${#ARR[@]}` pod `set -u` unbound variable.
+WARN_N=0
+WARN_LIST=""
+warn() {
+  echo "[cron] WARN: $1"
+  WARN_N=$((WARN_N + 1))
+  WARN_LIST="${WARN_LIST}
+[cron]    · $1"
+}
 
 # shellcheck disable=SC1091
 [ -f .env ] && { set -a; . ./.env; set +a; }
@@ -78,9 +97,9 @@ RC=$?
 # Meili gore (preskoči tiho ako nije deployan). Ne ruši cijeli cron na grešku.
 if [ "$RC" -eq 0 ]; then
   echo "[cron] Re-indeksiram Meili (lokalni)..."
-  ./scripts/sync-meili.sh || echo "[cron] WARN: lokalni Meili re-index pao (nastavljam)."
+  ./scripts/sync-meili.sh || warn "lokalni Meili re-index pao (nastavljam)."
   echo "[cron] Re-indeksiram Meili (cloud)..."
-  ./scripts/sync-meili.sh --cloud || echo "[cron] WARN: cloud Meili re-index pao/nije deployan (nastavljam)."
+  ./scripts/sync-meili.sh --cloud || warn "cloud Meili re-index pao/nije deployan (nastavljam)."
 fi
 
 # ─── 6. Re-populate "person hub" (PG speakers) ────────────────────────────────
@@ -91,9 +110,9 @@ fi
 # korak ovdje — vidi docs/data-refresh-flow.md § "Nova derivat-tablica".
 if [ "$RC" -eq 0 ]; then
   echo "[cron] Re-populiram person hub (lokalni PG)..."
-  ./scripts/sync-speakers.sh || echo "[cron] WARN: lokalni speakers populate pao (nastavljam)."
+  ./scripts/sync-speakers.sh || warn "lokalni speakers populate pao (nastavljam)."
   echo "[cron] Re-populiram person hub (cloud PG)..."
-  ./scripts/sync-speakers.sh --cloud || echo "[cron] WARN: cloud speakers populate pao/nije deployan (nastavljam)."
+  ./scripts/sync-speakers.sh --cloud || warn "cloud speakers populate pao/nije deployan (nastavljam)."
 fi
 
 # ─── 6b. Re-populate person_mentions ("Spominje se u" sekcija person huba) ─────
@@ -104,9 +123,9 @@ fi
 # VAŽNO: novi CH-derivat → svoj korak ovdje (docs/data-refresh-flow.md).
 if [ "$RC" -eq 0 ]; then
   echo "[cron] Re-populiram person_mentions (lokalni PG)..."
-  ./scripts/sync-person-mentions.sh || echo "[cron] WARN: lokalni person_mentions populate pao (nastavljam)."
+  ./scripts/sync-person-mentions.sh || warn "lokalni person_mentions populate pao (nastavljam)."
   echo "[cron] Re-populiram person_mentions (cloud PG)..."
-  ./scripts/sync-person-mentions.sh --cloud || echo "[cron] WARN: cloud person_mentions populate pao/nije deployan (nastavljam)."
+  ./scripts/sync-person-mentions.sh --cloud || warn "cloud person_mentions populate pao/nije deployan (nastavljam)."
 fi
 
 # ─── 7a. Regeneriraj vektorsku mapu (UMAP nad chunk embeddinzima) ─────────────
@@ -117,7 +136,7 @@ fi
 # PRIJE koraka 7: sync-stats.sh --deploy nosi i mapu u istom wrangler deployu.
 if [ "$RC" -eq 0 ]; then
   echo "[cron] Regeneriram vektorsku mapu (lokalni CH → domovina-stats/public)..."
-  ./scripts/sync-vector-map.sh || echo "[cron] WARN: vector map regeneracija pala (nastavljam)."
+  ./scripts/sync-vector-map.sh || warn "vector map regeneracija pala (nastavljam)."
 fi
 
 # ─── 7b. Regeneriraj mapu osoba (UMAP nad embeddinzima osoba) ─────────────────
@@ -128,7 +147,7 @@ fi
 # chunkova + spomena nije promijenio. Kao 7a, mora PRIJE koraka 7 (isti deploy).
 if [ "$RC" -eq 0 ]; then
   echo "[cron] Regeneriram mapu osoba (lokalni CH+PG → domovina-stats/public)..."
-  ./scripts/sync-person-map.sh || echo "[cron] WARN: mapa osoba pala (nastavljam)."
+  ./scripts/sync-person-map.sh || warn "mapa osoba pala (nastavljam)."
 fi
 
 # ─── 7. Osvježi javni stats dashboard (derivat CH-a) ──────────────────────────
@@ -140,8 +159,11 @@ fi
 if [ "$RC" -eq 0 ]; then
   echo "[cron] Generiram + deployam stats dashboard (cloud)..."
   ./scripts/sync-stats.sh --cloud --deploy \
-    || echo "[cron] WARN: stats sync/deploy pao/nije konfiguriran (nastavljam)."
+    || warn "stats sync/deploy pao/nije konfiguriran (nastavljam)."
 fi
 
-echo "[cron $(date '+%Y-%m-%d %H:%M:%S')] sync-cron gotov (rc=$RC)"
+if [ "$WARN_N" -gt 0 ]; then
+  echo "[cron] ⚠️  $WARN_N korak(a) nije prošao:$WARN_LIST"
+fi
+echo "[cron $(date '+%Y-%m-%d %H:%M:%S')] sync-cron gotov (rc=$RC, warn=$WARN_N)"
 exit $RC

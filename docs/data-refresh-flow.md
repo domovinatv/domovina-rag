@@ -319,6 +319,49 @@ Podsjetnik na ovo živi i u `CLAUDE.md` (§ "Data refresh") i u
 
 ---
 
+## 10. PATH u cronu — zašto postoji `scripts/lib/cron-path.sh`
+
+launchd ne pokreće login shell. Job dobiva **samo**
+`/usr/bin:/bin:/usr/sbin:/sbin` — bez `~/.zshrc`, bez nvm-a, bez Homebrewa. Sve
+što skripte zovu izvan te četiri mape mora se dodati eksplicitno, i to radi
+zajednički `scripts/lib/cron-path.sh` koji svaka `sync-*.sh` source-a na vrhu.
+
+| alat | stvarna lokacija | koristi ga |
+|---|---|---|
+| `docker` | `/usr/local/bin` | svi koraci (CH/PG preko `docker exec`) |
+| `node` / `npx` | `~/.nvm/versions/node/vXX/bin` | korak 7 (`wrangler pages deploy`) |
+| `gemini` | isto (nvm) | imenovanje klastera mape osoba |
+| `gcloud` | `~/google-cloud-sdk/bin` | isto, Vertex backend |
+
+**Kako je ovo koštalo tri tjedna.** Ranija je verzija imala po skripti liniju
+`export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"` — devet kopija, sve krive,
+jer node na ovom Macu nije u Homebrewu nego u nvm-u. Posljedica nije bila pad
+nego tišina: `sync-stats.sh --deploy` bi ispisao `ERROR: npx/node nije
+instaliran`, cron bi to progutao kao WARN i završio s `rc=0`. Snapshoti u
+`../domovina-stats/public/` bili su svaki dan svježi, a `stats.domovina.ai` je
+posluživao build star tri tjedna. Isti je korijen rušio i LLM-imenovanje klastera
+(48 klastera, samo 37 imenovanih — ostalo naslijeđeno iz jučerašnjeg snapshota).
+
+Zato:
+
+- **nvm verzija se razrješava iz `~/.nvm/alias/default`**, ne hardkodira —
+  hardkodiran `v24.16.0` pukao bi na prvoj nadogradnji, s istim nijemim simptomom.
+- **`sync-cron.sh` broji WARN-ove** i ponavlja ih u zadnjem retku
+  (`sync-cron gotov (rc=0, warn=2)`). Zadnji redak je jedino što se realno gleda.
+- **Provjera nakon svake izmjene cron skripti** — pokreni ih u okruženju kakvo
+  launchd doista daje, ne u svom shellu:
+
+  ```bash
+  cd /tmp && env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    /bin/bash ~/git/domovinatv/domovina-rag/scripts/sync-person-map.sh
+  ```
+
+  `env -i` je bitan: bez njega skripta naslijedi tvoj PATH i test ništa ne dokaže.
+  Isto vrijedi za `/bin/bash` — launchd zove njega (**bash 3.2**), ne Homebrew
+  bash 5, pa prazan `${#ARR[@]}` pod `set -u` puca kao unbound variable.
+
+---
+
 ## 8. Ovisnosti i rizici
 
 ```mermaid

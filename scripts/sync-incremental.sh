@@ -30,9 +30,10 @@
 #
 set -euo pipefail
 
-# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker i zstd
-# nisu vidljivi. Prepend Homebrew + /usr/local/bin da skripta radi i iz cron-a.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, node/npx,
+# gcloud i ostali alati nisu vidljivi. Razrješava ih zajednički lib.
+# shellcheck source=scripts/lib/cron-path.sh
+. "$(dirname "$0")/lib/cron-path.sh"
 
 cd "$(dirname "$0")/.."
 

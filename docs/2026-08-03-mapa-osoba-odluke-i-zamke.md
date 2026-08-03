@@ -143,20 +143,48 @@ Frontend je u jednoj verziji filtrirao `clusters.filter(c => c.label)` prije
 indeksiranja — tooltip je onda pokazivao naziv krivog područja. Prazne labele
 preskače sloj labela, ne pozivatelj.
 
+### 3.7 Cron je tri tjedna prijavljivao uspjeh, a nije deployao
+
+Otkriveno pri zatvaranju O4 (prvi pravi 04:00 ciklus). Korak 7b jest prošao —
+ali korak 7 (`sync-stats.sh --deploy`) padao je od 14.07. na
+`ERROR: npx/node nije instaliran`, jer launchd daje minimalan PATH, a devet
+`sync-*.sh` skripti imalo je po kopiju krive linije
+(`/opt/homebrew/bin:/usr/local/bin` — node je na ovom Macu u nvm-u).
+
+Dvije stvari čine ovo skupljim nego što zvuči:
+
+1. **Simptom je bio tišina, ne pad.** Cron je WARN progutao i završio s `rc=0`,
+   pa je izgledao zdravo. Snapshoti u `public/` bili su svježi svaki dan —
+   samo ih nitko nije deployao. Nema alarma za „sve je prošlo, ali javni sajt je
+   star tri tjedna".
+2. **Isti je korijen tiho degradirao mapu osoba.** `gcloud` i `gemini` također
+   nisu bili na PATH-u, pa je LLM-imenovanje klastera padalo na naslijeđene
+   labele (48 klastera, 37 imenovanih). Nakon popravka: **45/45**.
+
+Popravak: `scripts/lib/cron-path.sh` (jedan izvor, nvm verzija se razrješava iz
+`~/.nvm/alias/default`), brojač WARN-ova u zadnjem retku `sync-cron.sh`, i
+`--branch main` koji je u deploy naredbi **nedostajao** — pa bi i da je npx
+postojao deploy otišao na preview alias, a produkcija se ne bi mijenjala.
+Detalji i način testiranja: `data-refresh-flow.md` §10.
+
+**Pravilo za ubuduće:** cron skripta se testira s `env -i` i `/bin/bash`, nikad
+iz vlastitog shella — inače test dokazuje samo da radi kod tebe.
+
 ## 4. Otvorene stavke (ništa od ovoga nije blokada)
 
 | # | Stavka | Stanje |
 |---|---|---|
 | O1 | **`x-safari-https://` nije potvrđen na uređaju** — treba provjeriti ostaje li „Otvori u pregledniku" doista u Safariju na iPhoneu | čeka test |
 | O2 | **Android varijanta izbornika nije testirana na uređaju** (custom shema + Google Play fallback) | čeka test |
-| O3 | **Svijetla tema na `/map`**: točke su isprane jer je `alpha 0.55` preko bijele puno slabija nego preko gotovo crne. Nije regresija (vrijednost je stara), ali je s toggleom postala vidljiva svima. Popravak = alpha ovisna o temi, jedna linija — ali mijenja izgled glavne mape pa treba odluka | čeka odluku |
-| O4 | **Korak 7b u cronu nije prošao pravi ciklus u 04:00** — skripta je pokrenuta ručno (isti kod), skip-if-unchanged provjeren (0,27 s) | čeka prvi cron |
-| O5 | **`person-map-dupes.json`**: 17 kandidata za merge identiteta čeka ljudski pregled → `infra/postgres/seeds/speaker_aliases.csv`. Lista sadrži i zamke („Pavao" ~ „Ivan Pavao II.", „Marija" ~ „Marija Magdalena") gdje bi merge spojio dvije stvarne osobe | čeka odluku |
+| O3 | ~~Svijetla tema na `/map`: točke isprane (alpha 0.55 preko bijele)~~ — **riješeno 03.08.** Izmjereno: ista alpha daje ΔE 21,5 od bijele naspram 25,7 od tamne (OKLab ×100, medijan). Sada α=0,65 na svijetloj za mapu isječaka i 0,85 za mapu osoba; `u_alpha` se preselio u `setPalette`. Tamna nepromijenjena | **zatvoreno** |
+| O4 | ~~Korak 7b nije prošao pravi ciklus u 04:00~~ — **prošao 03.08. u 04:06:07–04:06:21 (14 s)**. Ali je isti log otkrio da korak **7** (deploy) pada od 14.07.; vidi §3.7 | **zatvoreno** |
+| O5 | **`person-map-dupes.json`**: 18 kandidata (bilo 17). Dokazi po paru i prijedlog: **`2026-08-03-merge-identiteta-pregled.md`** — 9 sigurnih merge-eva + 9 varijanti zapisa koje lista ne vidi, 4 kratka imena („Ivan", „Marija", „Pavao", „Franjo") dokazano su skupovi ljudi i ostaju. `speaker_aliases.csv` NIJE mijenjan | čeka potvrdu |
 | O6 | **Klaster jednočlanih imena** („Marko, Ante, Nikola, Hrvoje…", n=30) — LLM mu je dao uvjerljiv naziv („Duhovnost i pastoral") iako to nisu ljudi nego fragmenti. Nema sigurnog automatskog pravila (35,8 % slugova je jednočlano, a „Isus"/„Marija"/„Mojsije" su legitimni) | poznato, dokumentirano |
 
 ## 5. Vezani dokumenti
 
 - `docs/plans/2026-08-01-mapa-osoba.md` — plan, sva mjerenja, faze, rizici
+- `docs/2026-08-03-merge-identiteta-pregled.md` — O5: dokazi po paru + prijedlog za `speaker_aliases.csv`
 - `docs/person-data-gaps.md` — rupe u podacima (§2 zatvoren 01.08.)
 - `docs/data-refresh-flow.md` — dnevni ciklus, korak 7b
 - `scripts/emit_person_map.py`, `scripts/sync-person-map.sh`, `scripts/vectormap_common.py`

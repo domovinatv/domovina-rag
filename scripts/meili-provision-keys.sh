@@ -17,7 +17,10 @@
 #     ./scripts/meili-provision-keys.sh
 #   ./scripts/meili-provision-keys.sh --cloud      # preko SSH tunela na cloud Meili
 #
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, node/npx,
+# gcloud i ostali alati nisu vidljivi. Razrješava ih zajednički lib.
+# shellcheck source=scripts/lib/cron-path.sh
+. "$(dirname "$0")/lib/cron-path.sh"
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
