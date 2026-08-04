@@ -284,6 +284,9 @@ preskakanje proizvelo epizodu s nevidljivim rupama.
 
 ### Što ostaje
 
+Cjelovit uzročni lanac kroz tri repoa, zamka „kod commitan a neprimijenjen" i
+cijena regeneracije: **`2026-08-04-ingest-lanac-i-regeneracija.md`**.
+
 Tri chunka i dalje ne prolaze jer su `topic_transcript` segmenti od ~30 minuta
 (`00:20:30–00:50:00` u jednom komadu, 118 od 136 predugih dolazi s `subclub`).
 To je **producerov** posao — chunker u `fetch.domovina.tv` ne bi smio emitirati

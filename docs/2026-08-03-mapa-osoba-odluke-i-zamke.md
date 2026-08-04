@@ -185,6 +185,7 @@ iz vlastitog shella — inače test dokazuje samo da radi kod tebe.
 
 - `docs/plans/2026-08-01-mapa-osoba.md` — plan, sva mjerenja, faze, rizici
 - `docs/2026-08-03-merge-identiteta-pregled.md` — O5: dokazi po paru + prijedlog za `speaker_aliases.csv`
+- `docs/2026-08-04-ingest-lanac-i-regeneracija.md` — ista zamka („kod commitan a neprimijenjen") iz kuta cijelog ingest lanca; cijena regeneracije
 - `docs/person-data-gaps.md` — rupe u podacima (§2 zatvoren 01.08.)
 - `docs/data-refresh-flow.md` — dnevni ciklus, korak 7b
 - `scripts/emit_person_map.py`, `scripts/sync-person-map.sh`, `scripts/vectormap_common.py`
