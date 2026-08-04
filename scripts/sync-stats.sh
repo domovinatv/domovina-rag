@@ -74,15 +74,30 @@ fi
 # length(youtube_id)=11 izbacuje junk orfane (npr. korumpirani "λ").
 WHERE="length(youtube_id) = 11"
 
-Q_TOTALS="SELECT count() AS chunks, uniqExact(youtube_id) AS episodes, uniqExact(channel) AS channels, round(sum(end_ts - start_ts) / 3600) AS hours, toString(min(upload_date)) AS first_date, toString(max(upload_date)) AS last_date FROM rag_chunks WHERE $WHERE FORMAT JSON"
+# Izvor je JEDAN RED PO CHUNKU, a ne sirova tablica — dvije različite duplikacije
+# inače cure u javnu brojku:
+#   1. FINAL: rag_chunks je ReplacingMergeTree, pa nakon svakog push-a nespojeni
+#      duplikati žive do background mergea. Bez FINAL-a brojka ovisi o tome KAD je
+#      cron naletio (04.08.2026: 150 568 odmah nakon push-a, 149 888 nakon mergea).
+#   2. LIMIT 1 BY chunk_id: ETL pri re-ingestu dodijeli epizodi novi episode_id,
+#      koji je u ORDER BY ključu — ReplacingMergeTree zato NE kolabira ponovljene
+#      runove. Isti chunk tako živi u N kopija (04.08.2026: 6 314 redaka viška,
+#      jedna epizoda u 24 kopije) i napuhivao bi i chunks i hours. Mapa je to
+#      oduvijek dedupala po chunk hashu, pa je /map crtao 143 574 točke dok je
+#      dashboard tvrdio 149 888 chunkova — ista baza, dva broja na istom sajtu.
+# Uzrok (episode_id se mijenja po ETL runu) je u services/etl; ovdje se samo
+# odbija prikazati posljedica. Trošak nad ~150k redaka je zanemariv.
+SRC="(SELECT chunk_id, youtube_id, channel, upload_date, speaker, start_ts, end_ts FROM rag_chunks FINAL WHERE $WHERE ORDER BY chunk_id, episode_id DESC LIMIT 1 BY chunk_id)"
+
+Q_TOTALS="SELECT count() AS chunks, uniqExact(youtube_id) AS episodes, uniqExact(channel) AS channels, round(sum(end_ts - start_ts) / 3600) AS hours, toString(min(upload_date)) AS first_date, toString(max(upload_date)) AS last_date FROM $SRC FORMAT JSON"
 
 # Svi distinct raw govornici (broj govornika + leaderboard računa emit_stats_json.py
 # preko build_persons — isti dedup+role-filter kao person hub, pa se brojke slažu).
-Q_SPEAKERS_RAW="SELECT trim(BOTH ' ' FROM arrayJoin(splitByChar(',', speaker))) AS raw, count() AS chunks, uniqExact(youtube_id) AS episodes, arrayStringConcat(arraySort(groupUniqArray(channel)), '|') AS channels FROM rag_chunks WHERE $WHERE GROUP BY raw HAVING raw != '' FORMAT JSON"
+Q_SPEAKERS_RAW="SELECT trim(BOTH ' ' FROM arrayJoin(splitByChar(',', speaker))) AS raw, count() AS chunks, uniqExact(youtube_id) AS episodes, arrayStringConcat(arraySort(groupUniqArray(channel)), '|') AS channels FROM $SRC GROUP BY raw HAVING raw != '' FORMAT JSON"
 
-Q_CHANNELS="SELECT channel, uniqExact(youtube_id) AS episodes, count() AS chunks, round(sum(end_ts - start_ts) / 3600, 1) AS hours FROM rag_chunks WHERE $WHERE GROUP BY channel ORDER BY episodes DESC FORMAT JSON"
+Q_CHANNELS="SELECT channel, uniqExact(youtube_id) AS episodes, count() AS chunks, round(sum(end_ts - start_ts) / 3600, 1) AS hours FROM $SRC GROUP BY channel ORDER BY episodes DESC FORMAT JSON"
 
-Q_TIMELINE="SELECT toString(toStartOfMonth(upload_date)) AS month, uniqExact(youtube_id) AS episodes, count() AS chunks FROM rag_chunks WHERE $WHERE AND upload_date >= '2010-01-01' GROUP BY month ORDER BY month FORMAT JSON"
+Q_TIMELINE="SELECT toString(toStartOfMonth(upload_date)) AS month, uniqExact(youtube_id) AS episodes, count() AS chunks FROM $SRC WHERE upload_date >= '2010-01-01' GROUP BY month ORDER BY month FORMAT JSON"
 
 # ─── Izvrši + sklopi ──────────────────────────────────────────────────────────
 WORK=$(mktemp -d)

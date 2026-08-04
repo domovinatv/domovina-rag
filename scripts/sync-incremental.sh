@@ -2,15 +2,33 @@
 # scripts/sync-incremental.sh — inkrementalni refresh semantičke baze na cloudu.
 #
 # Cijeli put: lokalni ETL (oba diska, idempotentan) → embed novih chunkova na
-# host MPS embedderu → youtube_id set-diff lokalni CH vs cloud CH → dump delte
-# (Native+zstd) → push preko SSH-a u cloud CH. Sve idempotentno i sigurno za
-# ponovni run.
+# host MPS embedderu → diff (youtube_id, broj chunkova) lokalni CH vs cloud CH →
+# dump delte (Native+zstd) → push preko SSH-a u cloud CH. Sve idempotentno i
+# sigurno za ponovni run.
 #
-# ZAŠTO set-diff po youtube_id (a NE po datumu):
+# ZAŠTO diff po youtube_id (a NE po datumu):
 #   Producer zna indeksirati epizode naknadno — chunkovi s upload_date STARIJIM
-#   od cloud-maxa se pojave tek danas. Delta po datumu bi ih promašila; set-diff
+#   od cloud-maxa se pojave tek danas. Delta po datumu bi ih promašila; diff
 #   po youtube_id ih hvata. Filtriramo length(youtube_id)=11 da izbacimo junk
 #   (npr. korumpirani orfan youtube_id="λ", ep 474).
+#
+# ZAŠTO se uspoređuje BROJ JEDINSTVENIH chunk_id-eva, a ne skup youtube_id-eva:
+#   Set-diff po id-u vidi samo NOVE epizode. Epizoda koja je već u cloudu, a
+#   lokalno je re-procesirana (ETL je prvi put pao na embedu pa je ušla krnja),
+#   ima id na obje strane → delta 0 → popravak nikad ne ode gore. Točno se to
+#   dogodilo: 04.08.2026. je cloud četiri dana javljao "up-to-date" dok mu je u
+#   76 epizoda nedostajalo ~1 590 chunkova (npr. 6 od 28 stvarnih).
+#
+# ZAŠTO uniqExact(chunk_id), a ne count():
+#   ETL pri re-ingestu epizode dodijeli NOVI episode_id, a on je u ORDER BY
+#   ključu (channel, upload_date, episode_id, chunk_index). ReplacingMergeTree
+#   zato NE kolabira ponovljene runove — isti chunk_id živi u N kopija (izmjereno
+#   04.08.2026: tih 76 epizoda = 8 262 retka za 2 046 stvarnih chunkova, faktor
+#   do 24×). count() bi tu duplikaciju čitao kao "sadržaj" i gurao je u cloud, gdje
+#   napuhuje HNSW indeks i vraća isti chunk više puta u RAG rezultatima. Zato je
+#   mjera uniqExact(chunk_id), a dump ide kroz LIMIT 1 BY chunk_id.
+#   Uzrok (episode_id se mijenja po runu) je u services/etl i nije riješen ovdje —
+#   ovaj skript samo odbija propagirati posljedicu.
 #
 # ZAŠTO embed lokalno, serve na cloudu:
 #   bge-m3 je MPS-heavy (~37ms/text na Apple Silicon, ~1500ms na cloud CPU).
@@ -113,24 +131,40 @@ else
   log "Preskačem ETL (--skip-etl/--dry-run)."
 fi
 
-# ─── 2. Set-diff po youtube_id (validni 11-znakovni; junk se izbacuje) ─────────
+# ─── 2. Diff po (youtube_id, broj chunkova) — validni 11-znakovni id-evi ───────
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 log "Računam delta (lokalni CH vs cloud CH)..."
-ch_local "SELECT DISTINCT youtube_id FROM rag_chunks WHERE length(youtube_id)=11 ORDER BY youtube_id" > "$WORK/local.txt"
-ch_cloud "SELECT DISTINCT youtube_id FROM rag_chunks WHERE length(youtube_id)=11 ORDER BY youtube_id" > "$WORK/cloud.txt"
-comm -23 "$WORK/local.txt" "$WORK/cloud.txt" > "$WORK/delta.txt"
+# FINAL na obje strane: ReplacingMergeTree drži nespojene duplikate do mergea, a
+# bez FINAL-a bi ih diff čitao kao "razliku" i vrtio push u prazno svaki dan.
+# Treći stupac (redaka) služi da se uhvati i cloud koji ima točan sadržaj, ali
+# napuhan duplikatima iz ranijih push-eva — i takva epizoda ide na re-push.
+CNT_Q="SELECT youtube_id, uniqExact(chunk_id), count() FROM rag_chunks FINAL WHERE length(youtube_id)=11 GROUP BY youtube_id ORDER BY youtube_id FORMAT TSV"
+ch_local "$CNT_Q" > "$WORK/local.tsv"
+ch_cloud "$CNT_Q" > "$WORK/cloud.tsv"
+
+# delta.tsv: youtube_id \t jedinstvenih_na_cloudu (-1 = epizode nema) \t jedinstvenih_lokalno
+awk -F'\t' 'NR==FNR { u[$1]=$2; r[$1]=$3; next }
+            { n = ($1 in u) ? u[$1] : -1
+              if (n != $2 || ($1 in u && r[$1] != u[$1])) print $1"\t"n"\t"$2 }' \
+  "$WORK/cloud.tsv" "$WORK/local.tsv" > "$WORK/delta.tsv"
+cut -f1 "$WORK/delta.tsv" > "$WORK/delta.txt"
 
 DELTA_N=$(grep -c . "$WORK/delta.txt" || true)
-log "Lokalno: $(grep -c . "$WORK/local.txt") videa | Cloud: $(grep -c . "$WORK/cloud.txt") videa | Delta: $DELTA_N"
+NEW_N=$(awk -F'\t' '$2 == -1' "$WORK/delta.tsv" | grep -c . || true)
+CHANGED_N=$((DELTA_N - NEW_N))
+sum_col() { awk -F'\t' -v c="$2" '{s += $c} END {print s+0}' "$1"; }
+log "Lokalno: $(grep -c . "$WORK/local.tsv") videa / $(sum_col "$WORK/local.tsv" 2) chunkova ($(sum_col "$WORK/local.tsv" 3) redaka) | Cloud: $(grep -c . "$WORK/cloud.tsv") videa / $(sum_col "$WORK/cloud.tsv" 2) chunkova ($(sum_col "$WORK/cloud.tsv" 3) redaka)"
+log "Delta: $DELTA_N epizoda ($NEW_N novih, $CHANGED_N s promijenjenim/dupliciranim sadržajem)"
 
 if [ "$DELTA_N" -eq 0 ]; then
   log "Nema delte — cloud je up-to-date. Gotovo."
   exit 0
 fi
 
-log "Nova videa za sync:"; sed 's/^/    /' "$WORK/delta.txt"
+log "Epizode za sync (id, cloud→lokalno):"
+awk -F'\t' '{printf "    %s  %s → %s\n", $1, ($2 == -1 ? "nema" : $2), $3}' "$WORK/delta.tsv"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   log "--dry-run: stajem prije dump-a/push-a."
@@ -140,10 +174,25 @@ fi
 # ─── 3. Dump delte (Native+zstd, FINAL za dedup na izvoru) ────────────────────
 IN=$(awk 'NF{printf "%s'\''%s'\''", (NR>1?",":""), $1}' "$WORK/delta.txt")
 log "Dump $DELTA_N videa → Native+zstd..."
-ch_local "SELECT * FROM rag_chunks FINAL WHERE youtube_id IN ($IN) FORMAT Native" \
+# LIMIT 1 BY chunk_id: u cloud ide jedan red po chunku, iz najnovijeg ETL runa
+# (episode_id DESC). Bez toga se lokalna duplikacija preslika gore.
+ch_local "SELECT * FROM rag_chunks FINAL WHERE youtube_id IN ($IN) ORDER BY chunk_id, episode_id DESC LIMIT 1 BY chunk_id FORMAT Native" \
   | zstd -19 > "$WORK/delta.native.zst"
-DUMP_CHUNKS=$(ch_local "SELECT count() FROM rag_chunks WHERE youtube_id IN ($IN)")
+DUMP_CHUNKS=$(ch_local "SELECT uniqExact(chunk_id) FROM rag_chunks FINAL WHERE youtube_id IN ($IN)")
 log "Dump: $(du -h "$WORK/delta.native.zst" | cut -f1), $DUMP_CHUNKS chunkova"
+
+# ─── 3.5 Brisanje krnjih verzija na cloudu (samo za promijenjene epizode) ─────
+# ReplacingMergeTree dedupa po ORDER BY (channel, upload_date, episode_id,
+# chunk_index) tek na merge, i to samo preklapajuće ključeve. Ako je epizoda
+# lokalno re-chunkana na MANJE chunkova, stari repovi bi ostali zauvijek. Brišemo
+# pa ubacujemo — jedini put koji je točan u oba smjera. Za nove epizode se
+# preskače (mutacija nad cijelom tablicom nije besplatna).
+if [ "$CHANGED_N" -gt 0 ]; then
+  IN_CHANGED=$(awk -F'\t' '$2 != -1 {printf "%s'\''%s'\''", (n++ ? "," : ""), $1}' "$WORK/delta.tsv")
+  log "Brišem $CHANGED_N promijenjenih epizoda iz clouda (mutacija, čekam završetak)..."
+  ch_cloud "ALTER TABLE rag_chunks DELETE WHERE youtube_id IN ($IN_CHANGED) SETTINGS mutations_sync = 2"
+  log "Mutacija gotova."
+fi
 
 # ─── 4. Push u cloud CH preko SSH-a ───────────────────────────────────────────
 BEFORE=$(ch_cloud "SELECT count() FROM rag_chunks")
@@ -153,12 +202,20 @@ cat "$WORK/delta.native.zst" | ssh $SSH_OPTS "$SSH_HOST" \
 AFTER=$(ch_cloud "SELECT count() FROM rag_chunks")
 log "Cloud chunks AFTER:  $AFTER  (+$((AFTER - BEFORE)))"
 
-# ─── 5. Verifikacija ──────────────────────────────────────────────────────────
-CLOUD_DELTA_VIDS=$(ch_cloud "SELECT count(DISTINCT youtube_id) FROM rag_chunks WHERE youtube_id IN ($IN)")
-log "Verifikacija: $CLOUD_DELTA_VIDS / $DELTA_N novih videa prisutno na cloudu."
-if [ "$CLOUD_DELTA_VIDS" -eq "$DELTA_N" ]; then
+# ─── 5. Verifikacija (po epizodi, ne samo po prisutnosti id-a) ────────────────
+# "id postoji na cloudu" je bila prestara provjera — prolazila je i za epizodu
+# sa 6 od 112 chunkova. Uspoređuje se broj chunkova po epizodi.
+ch_cloud "SELECT youtube_id, uniqExact(chunk_id), count() FROM rag_chunks FINAL WHERE youtube_id IN ($IN) GROUP BY youtube_id ORDER BY youtube_id FORMAT TSV" > "$WORK/cloud-after.tsv"
+awk -F'\t' 'NR==FNR { u[$1]=$2; r[$1]=$3; next }
+            { n = ($1 in u) ? u[$1] : 0
+              if (n != $3) print "    "$1"  očekivano "$3" chunkova, na cloudu "n
+              else if (r[$1] != n) print "    "$1"  "n" chunkova ali "r[$1]" redaka (duplikati)" }' \
+  "$WORK/cloud-after.tsv" "$WORK/delta.tsv" > "$WORK/mismatch.txt"
+MISMATCH_N=$(grep -c . "$WORK/mismatch.txt" || true)
+log "Verifikacija: $((DELTA_N - MISMATCH_N)) / $DELTA_N epizoda ima točan broj chunkova na cloudu."
+if [ "$MISMATCH_N" -eq 0 ]; then
   log "✅ Sync uspješan."
 else
-  log "⚠️  Mismatch — provjeri ručno (možda ReplacingMergeTree dedup ili djelomičan insert)."
+  log "⚠️  Mismatch na $MISMATCH_N epizoda:"; cat "$WORK/mismatch.txt"
   exit 1
 fi
