@@ -46,6 +46,7 @@ Vidi `docs/mps-embedder-memory.md` §6.
 | `EMBEDDER_MAX_BATCH` | `256` | Max strings u jednom `/embed` POST-u |
 | `EMBEDDER_MEM_BUDGET_GB` | `4.5` | Budžet nad `244 × batch × n²`; iz njega ispada limit tokena po tekstu |
 | `EMBEDDER_MAX_TEXT_CHARS` | `500000` | Gruba brana prije tokenizacije (ne zamjena za budžet) |
+| `EMBEDDER_MPS_CAP_GB` | `8.0` | **Tvrda** kapica MPS alokacije procesa (`torch.mps.set_per_process_memory_fraction`). Prekoračenje digne RuntimeError umjesto da sruši stroj |
 | ~~`EMBEDDER_MAX_TEXT_LEN`~~ | — | **Ukinut** — rezao po znakovima umjesto po tokenima. Ostane li u env-u, ignorira se uz WARNING |
 | `EMBEDDER_WARMUP` | `1` | Eager load model on boot (=1) ili lazy (=0) |
 | `LOG_LEVEL` | `INFO` | Standard Python logging |

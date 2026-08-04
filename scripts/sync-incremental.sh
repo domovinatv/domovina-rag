@@ -90,6 +90,16 @@ ch_cloud() { ssh $SSH_OPTS "$SSH_HOST" \
 
 # ─── 1. ETL ingest (idempotentan, per-disk) ───────────────────────────────────
 if [ "$SKIP_ETL" -eq 0 ]; then
+  # ETL se vrti u KONTEJNERU, a `services/etl/` je zapečen u image (mounta se
+  # samo /data:ro). Bez ovog builda izmjena Pythona se commita, prođe code
+  # review i tiho se NE primijeni — točno se to dogodilo s `embed_lenient`:
+  # popravak je bio u gitu 03.08., a cron je 04.08. i dalje vrtio image od 01.08.
+  # i odbacivao cijele epizode. S Docker cacheom ovo traje ~5 s kad se ništa nije
+  # promijenilo, pa nema razloga da nije bezuvjetno.
+  log "Build ETL image (no-op ako se izvor nije promijenio)..."
+  docker compose --profile etl build etl >/dev/null 2>&1 \
+    || log "WARN: ETL build pao — nastavljam s postojećim imageom (može biti star!)."
+
   for dir in "${DATA_DIRS[@]}"; do
     if [ ! -d "$dir" ]; then
       log "WARN: data dir ne postoji, preskačem: $dir"

@@ -145,6 +145,12 @@ if self.device == "mps":
 > ⚠️ **NE** koristi `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7` — PyTorch ima i *low*
 > watermark (default 1.4); high < low ruši startup s `RuntimeError: invalid low
 > watermark ratio`. `empty_cache()` je dovoljan i siguran.
+>
+> **Ali to vrijedi samo za ENV VARIJABLU.** Python API
+> `torch.mps.set_per_process_memory_fraction(f)` ne prolazi kroz istu validaciju i
+> radi bez sukoba s low watermarkom — provjereno na torch 2.11 za f = 0,21 / 0,32
+> / 0,42. Od 04.08. se koristi baš on (§6), pa ovo upozorenje NIJE razlog da ga se
+> makne.
 
 ### Validacija (2026-07-03)
 
@@ -239,6 +245,22 @@ grupiranja — slični završe zajedno i padding se ne plaća.
 | `EMBEDDER_MEM_BUDGET_GB` | **4,5** (host MPS), 8 (CPU kontejner) | budžet nad `244 × batch × n²` |
 | `EMBEDDER_MAX_TEXT_LEN` | **ukinut** | ako ostane u env-u → WARNING, ignorira se |
 | `EMBEDDER_MAX_TEXT_CHARS` | 500000 | gruba brana da se ne tokenizira cijeli fajl |
+| `EMBEDDER_MPS_CAP_GB` | **8,0** | **tvrda** kapica alokacije procesa (vidi niže) |
+
+### Budžet je model, kapica je kočnica
+
+`_plan_batches` je RAČUNSKI model izveden iz mjerenja — dobar, ali allocator ga
+ne obvezuje ni na što. Zato od 04.08. `load()` postavlja i
+`torch.mps.set_per_process_memory_fraction(cap / recommended_max_memory)`
+(torch ≥ 2.1; ovdje 2.11, `recommended_max_memory` = 19,1 GB).
+
+Razlika je bitna: bez kapice prekoračenje znači da macOS počne swapati i cijeli
+stroj stane, jer MPS alokacije dolaze iz istog DRAM-a kao OS. S kapicom PyTorch
+digne `RuntimeError` — padne POJEDINI request, a stroj ostane živ.
+
+Kapica je namjerno LABAVIJA od budžeta (8 vs 4,5 GB): njoj nije posao upravljati
+batchevima nego biti zadnja brana ako model troška podbaci. Pokriva težine
+bge-m3 (~2,3 GB fp32) + attention budžet + aktivacije.
 
 Default 4,5 GB nije procjena nego **izmjereni peak stare, dokazano stabilne
 postavke** (batch 4 × 2100 tokena = 4,30 GB). Između nje i 15,13 GB nema

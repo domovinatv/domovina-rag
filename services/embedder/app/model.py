@@ -7,11 +7,15 @@ može razlikovati "model nije učitan" od "model spreman".
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from typing import List, Optional
 
 from sentence_transformers import SentenceTransformer
+
+
+log = logging.getLogger("embedder.model")
 
 
 _DEFAULT_MODEL = "BAAI/bge-m3"
@@ -23,6 +27,12 @@ _DEFAULT_BATCH = 32
 # zamrznula stroj. Između njih nema mjerenja, pa default ostaje na donjoj —
 # podigni `EMBEDDER_MEM_BUDGET_GB` tek kad se potvrdi da je stabilno.
 _DEFAULT_BUDGET_GB = 4.5
+
+# Tvrda kapica na MPS alokaciju procesa: težine bge-m3 (~2,3 GB fp32) + attention
+# budžet (4,5) + rezerva za aktivacije. Namjerno je LABAVIJA od budžeta — nije
+# joj posao upravljati batchevima (to radi _plan_batches) nego biti zadnja brana
+# ako model troška podbaci. Vidi docs/mps-embedder-memory.md §6.
+_DEFAULT_CAP_GB = 8.0
 
 # Koliko memorije košta jedan forward, izmjereno na M4 Pro (26 GB unified, od
 # čega 14,6 GB drži Docker → embedderu ostaje ~11 GB).
@@ -47,11 +57,13 @@ class Embedder:
         device: str = _DEFAULT_DEVICE,
         batch_size: int = _DEFAULT_BATCH,
         budget_gb: float = _DEFAULT_BUDGET_GB,
+        cap_gb: float = _DEFAULT_CAP_GB,
     ) -> None:
         self.model_name = model_name
         self.device = device
         self.batch_size = batch_size
         self.budget_bytes = budget_gb * 1e9
+        self.cap_bytes = cap_gb * 1e9
         self._model: Optional[SentenceTransformer] = None
         self._lock = threading.Lock()
 
@@ -60,8 +72,9 @@ class Embedder:
         """Najdulji tekst koji stane u budžet SAM (batch=1).
 
         Iz `peak ≈ 244 × batch × n²` uz batch=1 → `n = √(budžet / 244)`.
-        Pri 6 GB to je ~4960 tokena. Tekst iznad toga ne može se embeddati ni
-        sam, pa `/embed` na njemu vraća 413 — to je jedini preostali tvrdi limit.
+        Pri zadanih 4,5 GB to je 4295 tokena (~16 700 znakova hrvatskog). Tekst
+        iznad toga ne stane ni sam, pa `/embed` na njemu vraća 413 — to je jedini
+        preostali tvrdi limit po tekstu.
         """
         n = int((self.budget_bytes / _ATTN_BYTES_PER_BATCH_TOKEN2) ** 0.5)
         return min(n, self.max_seq_length)
@@ -129,7 +142,38 @@ class Embedder:
         with self._lock:
             if self._model is not None:
                 return
+            self._cap_mps_memory()
             self._model = SentenceTransformer(self.model_name, device=self.device)
+
+    def _cap_mps_memory(self) -> None:
+        """Tvrda gornja granica MPS alokacije za OVAJ proces.
+
+        `_plan_batches` je RAČUNSKI model (244 × batch × n²) — dobar, ali izveden
+        iz mjerenja i ne obvezuje allocator ni na što. Ovo je jedina prava kočnica:
+        prijeđe li proces granicu, PyTorch digne RuntimeError umjesto da nastavi
+        gristi sistemski RAM. Na Apple Siliconu je to razlika između pale
+        POJEDINE requesta i zamrznutog stroja — GPU alokacije dolaze iz istog
+        DRAM-a kao OS, pa bez kapice macOS počne swapati i sve stane.
+
+        Granica pokriva težine (~2,3 GB fp32) + attention budžet + rezervu.
+        """
+        if self.device != "mps":
+            return
+        try:
+            import torch
+
+            total = torch.mps.recommended_max_memory()
+            if not total:
+                return
+            fraction = min(1.0, (self.cap_bytes) / total)
+            torch.mps.set_per_process_memory_fraction(fraction)
+            log.info(
+                "MPS kapica: %.1f GB (%.0f%% od %.1f GB) — prekoračenje digne "
+                "RuntimeError umjesto da sruši stroj",
+                self.cap_bytes / 1e9, fraction * 100, total / 1e9,
+            )
+        except Exception as e:  # stariji torch bez API-ja → ostajemo na budžetu
+            log.warning("MPS kapica nije postavljena (%s) — vrijedi samo budžet", e)
 
     def encode(self, texts: List[str]) -> List[List[float]]:
         if not texts:
@@ -191,4 +235,5 @@ def embedder_from_env() -> Embedder:
         device=os.environ.get("EMBEDDER_DEVICE", _DEFAULT_DEVICE),
         batch_size=int(os.environ.get("EMBEDDER_BATCH_SIZE", _DEFAULT_BATCH)),
         budget_gb=float(os.environ.get("EMBEDDER_MEM_BUDGET_GB", _DEFAULT_BUDGET_GB)),
+        cap_gb=float(os.environ.get("EMBEDDER_MPS_CAP_GB", _DEFAULT_CAP_GB)),
     )
