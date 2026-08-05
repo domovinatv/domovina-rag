@@ -131,8 +131,13 @@ if [ "$SKIP_ETL" -eq 0 ]; then
       continue
     fi
     log "ETL ingest: $dir"
+    # WARNING mora proći filter: load.py namjerno logira "epizoda unesena s X od Y
+    # chunkova" kad 413 pojede pojedini chunk, i to je JEDINI trag da je epizoda u
+    # korpusu nepotpuna (nijedan agregat to ne pokazuje — chunkova je manje, ali
+    # nitko ne zna koliko ih je trebalo biti). Stari filter je propuštao samo
+    # Pronađeno|Done:|ERROR, pa je taj WARNING padao u ništa.
     DATA_SOURCE_DIR="$dir" docker compose --profile etl run --rm etl \
-      ingest --input /data --batch-size "$ETL_BATCH" 2>&1 | grep -E 'Pronađeno|Done:|ERROR|error' || true
+      ingest --input /data --batch-size "$ETL_BATCH" 2>&1 | grep -E 'Pronađeno|Done:|ERROR|error|WARNING|preskočen' || true
   done
 else
   log "Preskačem ETL (--skip-etl/--dry-run)."
