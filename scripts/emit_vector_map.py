@@ -8,10 +8,18 @@ Ulazi su pripremljeni fajlovi (docker exec izvoz iz lokalnog CH/PG), pa skripta
 nema DB ovisnosti. Zajedničko s mapom osoba (kvantizacija, HDBSCAN, LLM
 imenovanje, nasljeđivanje labela) živi u scripts/vectormap_common.py.
 
+🔴 `t_sec` je DIJELJEN KLJUČ, ne interni detalj. Tražilica na
+stats.domovina.ai/map spaja pogodak s točkom preko `ep_idx * 65536 + t_sec`, a
+drugu stranu tog ključa računa `searchMapPoints()` u
+services/mcp/src/tools/search-podcasts.ts (`least(toUInt32(round(start_ts)),
+65535)`). Promijeniš li izraz ovdje (npr. round → floor), pretraga tiho prestane
+nalaziti točke — nema greške, samo prazna mapa. Mijenjaj OBA mjesta ili nijedno.
+Ugovor: ../domovina-stats/docs/02-data-contract.md § Pretraga na mapi.
+
 Ulazi:
   --raw       RowBinary izvoz iz CH, FIKSNI record (4119 B):
               CAST(youtube_id AS FixedString(11))            11 B
-              toUInt16(least(round(start_ts),65535))          2 B
+              toUInt16(least(round(start_ts),65535))          2 B   ← dijeljen ključ
               cityHash64(chunk_id)                            8 B
               embedding Array(Float32), uvijek dim=1024:
                 varint duljine 1024 = b'\\x80\\x08'           2 B
