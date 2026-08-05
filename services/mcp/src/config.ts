@@ -62,7 +62,7 @@ export function loadConfig(): Config {
     clickhouseUrl: required("CLICKHOUSE_URL"),
     embedderUrl: optional("EMBEDDER_URL", "http://embedder:8000"),
     serviceName: "domovina-podcast",
-    serviceVersion: "0.8.0",
+    serviceVersion: "0.9.0",
     adminApiKey: process.env.ADMIN_API_KEY || null,
     rateLimitPerMinute: parseInt(optional("RATE_LIMIT_PER_MINUTE", "60"), 10),
     rateLimitPerHour: parseInt(optional("RATE_LIMIT_PER_HOUR", "1000"), 10),
@@ -71,7 +71,8 @@ export function loadConfig(): Config {
     publicSearchEnabled: optional("PUBLIC_SEARCH_ENABLED", "true") !== "false",
     publicSearchAllowedOrigins: optional(
       "PUBLIC_SEARCH_ALLOWED_ORIGINS",
-      "https://domovina.ai,https://www.domovina.ai,http://localhost:5173",
+      // stats.domovina.ai/map ucrtava pogotke u semantičku mapu (mode=map).
+      "https://domovina.ai,https://www.domovina.ai,https://stats.domovina.ai,http://localhost:5173",
     )
       .split(",")
       .map((o) => o.trim())

@@ -15,7 +15,12 @@ import type { Pool } from "pg";
 
 import type { Config } from "./config.js";
 import type { EmbedderClient } from "./embedder.js";
-import { SearchPodcastsInput, searchPodcasts } from "./tools/search-podcasts.js";
+import {
+  SearchPodcastsInput,
+  SearchMapInput,
+  searchPodcasts,
+  searchMapPoints,
+} from "./tools/search-podcasts.js";
 import { GetPersonInput, getPerson, PersonNotFoundError } from "./tools/get-person.js";
 
 export interface PublicApiDeps {
@@ -108,6 +113,43 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
     next();
   };
 
+  // Kompaktni odgovor za mapu: hits = [[youtube_id, t_sec, score]…]. Array-of-
+  // arrays, ne objekti — pri 300-500 pogodaka ključevi bi bili većina payloada.
+  const handleSearchMap = (src: Record<string, unknown>, res: Response) => {
+    const parsed = SearchMapInput.safeParse({
+      query: src.q ?? src.query,
+      channel: src.channel,
+      speaker: src.speaker,
+      min_upload_date: src.min_upload_date ?? src.min_date,
+      max_upload_date: src.max_upload_date ?? src.max_date,
+      include_summaries: src.include_summaries,
+      limit: src.limit,
+      lexical_terms: normalizeLexical(src.lexical_terms ?? src.lexical),
+    });
+
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", detail: parsed.error.issues });
+      return;
+    }
+
+    searchMapPoints(parsed.data, { ch: deps.ch, embedder: deps.embedder })
+      .then((hits) => {
+        res.setHeader("Cache-Control", "public, max-age=300");
+        res.json({
+          query: parsed.data.query,
+          mode: "map",
+          count: hits.length,
+          limit: parsed.data.limit,
+          hits: hits.map((h) => [h.youtube_id, h.t, Math.round(h.score * 1000) / 1000]),
+        });
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[public-api] /api/search?mode=map failed:", msg);
+        if (!res.headersSent) res.status(500).json({ error: "internal" });
+      });
+  };
+
   const handleSearch = (req: Request, res: Response) => {
     if (!rateLimit(req, res)) return; // 429 already sent
 
@@ -115,6 +157,13 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
       req.method === "POST" && req.body && typeof req.body === "object"
         ? (req.body as Record<string, unknown>)
         : (req.query as Record<string, unknown>);
+
+    // `mode=map` (stats.domovina.ai/map): isti retrieval, ali odgovor nosi samo
+    // koordinate pogodaka — vidi searchMapPoints.
+    if (String(src.mode ?? "").toLowerCase() === "map") {
+      handleSearchMap(src, res);
+      return;
+    }
 
     const parsed = SearchPodcastsInput.safeParse({
       query: src.q ?? src.query,
