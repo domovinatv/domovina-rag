@@ -114,9 +114,16 @@ if [ "$SKIP_ETL" -eq 0 ]; then
   # popravak je bio u gitu 03.08., a cron je 04.08. i dalje vrtio image od 01.08.
   # i odbacivao cijele epizode. S Docker cacheom ovo traje ~5 s kad se ništa nije
   # promijenilo, pa nema razloga da nije bezuvjetno.
+  # Output ide u fajl, ne u /dev/null: 05.08.2026. je build pao u 04:01 (Docker se
+  # tek budio s Macom), cron je nastavio s imageom od jučer, a JEDINI trag je bio
+  # "WARN: ETL build pao" bez razloga. Ako se ovo ponovi, razlog mora biti čitljiv.
   log "Build ETL image (no-op ako se izvor nije promijenio)..."
-  docker compose --profile etl build etl >/dev/null 2>&1 \
-    || log "WARN: ETL build pao — nastavljam s postojećim imageom (može biti star!)."
+  BUILD_LOG=".ingest-logs/etl-build-$(date +%Y%m%d).log"
+  if ! docker compose --profile etl build etl >"$BUILD_LOG" 2>&1; then
+    log "WARN: ETL build pao — nastavljam s postojećim imageom (može biti star!). Razlog:"
+    tail -15 "$BUILD_LOG" | sed 's/^/[cron]    │ /'
+    log "       Puni log: $BUILD_LOG"
+  fi
 
   for dir in "${DATA_DIRS[@]}"; do
     if [ ! -d "$dir" ]; then
