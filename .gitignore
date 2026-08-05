@@ -54,6 +54,13 @@ snapshots/
 .coolify/
 
 # Tool caches (local-only)
-.claude/
+# NAPOMENA: .claude/commands/* SU verzionirane — to su uloge AI tima
+# (/pocni, /delegiraj, /tim, /pregled). Ignoriramo samo runtime smeće.
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+.claude/worktrees/
 .wrangler/
 .firecrawl/
+
+# AI tim runtime stanje (pane mapa, status linija, verdikti reviewera)
+.tim/
