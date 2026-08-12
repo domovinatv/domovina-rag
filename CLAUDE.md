@@ -28,7 +28,7 @@ Ako se zatekneš u skripti za fetch/convert/transkripciju — **prebaci se u fet
 | Licenca | AGPL-3.0 | Force-share modifications za hosted service; sprječava proprietary fork-ove |
 | Repo struktura | Mono s `services/` | Solo dev; lakše ako kasnije razdijeliš |
 | Primarni DB roles | PG=OLTP, CH=OLAP+vectors | Vidi plan §2 |
-| MCP transport | HTTP+SSE (prod), stdio (dev) | MCP spec standard |
+| MCP transport | Streamable HTTP (prod), stdio (dev) | MCP spec standard |
 | MCP auth (start) | API key | Private MCP do Faze 4 |
 | MCP auth (later) | OAuth 2.1 + DCR | Public MCP, ako odlučiš |
 | Embedding model | bge-m3 (default), bge-reranker-v2-m3 | MIT/Apache, multilingual, HR-friendly |

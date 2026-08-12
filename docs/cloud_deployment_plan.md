@@ -297,12 +297,12 @@ curl -i -m 3 -H "Authorization: Bearer YOUR_MCP_API_KEY" https://mcp.domovina.ai
 - [ ] Health checks iz cloud-a:
   ```bash
   curl https://mcp.domovina.ai/health  # → 200
-  curl -H "Authorization: Bearer $API_KEY" https://mcp.domovina.ai/sse  # → 200 SSE stream
+  curl -X POST -H "Authorization: Bearer $API_KEY" https://mcp.domovina.ai/mcp -d '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}' # → 200 Streamable HTTP response
   ```
 
 - [ ] Local MCP SDK smoke test protiv cloud URL-a (modificirano iz `services/mcp/scripts/smoke-test.mjs`):
   ```bash
-  MCP_URL=https://mcp.domovina.ai/sse \
+  MCP_URL=https://mcp.domovina.ai/mcp \
   MCP_API_KEY=$API_KEY \
     node services/mcp/scripts/smoke-test.mjs
   ```
@@ -313,7 +313,8 @@ curl -i -m 3 -H "Authorization: Bearer YOUR_MCP_API_KEY" https://mcp.domovina.ai
   {
     "mcpServers": {
       "domovina-rag-prod": {
-        "url": "https://mcp.domovina.ai/sse",
+        "url": "https://mcp.domovina.ai/mcp",
+        "transport": "http",
         "headers": { "Authorization": "Bearer YOUR_API_KEY" }
       }
     }

@@ -33,7 +33,10 @@ function summarize(label, result) {
     console.log(`${label}: (empty)`);
     return;
   }
-  const rows = JSON.parse(text);
+  let rows = JSON.parse(text);
+  if (rows && typeof rows === "object" && !Array.isArray(rows) && Array.isArray(rows.results)) {
+    rows = rows.results;
+  }
   console.log(`\n${label}: ${rows.length} rezultata`);
   rows.forEach((r, i) => {
     const preview = r.text.replace(/\s+/g, " ").slice(0, 80);
