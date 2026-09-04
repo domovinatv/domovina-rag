@@ -239,6 +239,27 @@ API key dobivaš iz `.env.coolify` (osoba koja maintaina Coolify deployment).
 
 ## Production deploy (Coolify)
 
+> **Zamka izmjerena 4.9.2026.: `/health` 200 NE znači da je tvoj kod živ.**
+> `deploy.sh` javi „Živo nakon ~10 s" dok **stari** kontejner još služi promet —
+> Coolify tek gradi image pa zamjenjuje kontejner. Nova ruta je tog dana vraćala
+> 404 još **8 minuta** nakon te poruke, a tijekom same zamjene dala jedan 200 pa
+> opet 404. Verificiraj **novu funkcionalnost**, ne `/health`:
+>
+> ```bash
+> # status samog deploya
+> curl -sS -H "Authorization: Bearer $COOLIFY_API_TOKEN" \
+>   "$COOLIFY_API_URL/api/v1/deployments/<deployment_uuid>" | jq .status
+> # → in_progress … finished
+>
+> # koji commit je STVARNO u kontejneru (image tag je SHA)
+> ssh dom-001 "docker ps --filter name=amu4q428khkefqhu5zd6cq88 \
+>   --format '{{.Status}}\t{{.Image}}'"
+> ```
+>
+> Kontejner zna biti tjednima star, pa jedan deploy odjednom isporuči sve MCP
+> commitove nakupljene u međuvremenu — pogledaj `git log` prije nego okineš.
+
+
 Vidi [`docs/cloud_deployment_plan.md`](../../docs/cloud_deployment_plan.md) — Coolify UI flow s "Public Repository" source-om, env vars set u UI-u, Cloudflare Tunnel za public expose, R2 za snapshot sync iz lokalnih podataka.
 
 Trenutno deployano na `https://mcp.domovina.ai` (Coolify projekt `px79sl4tx5o2ehbk5kpgbxp0`).
