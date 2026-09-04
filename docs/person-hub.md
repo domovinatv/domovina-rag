@@ -233,3 +233,118 @@ DATA_SOURCE_DIR=/Volumes/DOMOVINA2TB/... docker compose --profile etl run --rm e
 # 4. Redeploy MCP (Coolify Application, rolling) — nema push-webhooka, klik u UI.
 #    /health verzija potvrđuje da je novi kod živ.
 ```
+
+---
+
+## Virtualni kanali (v0.10.0, 3.9.2026.)
+
+Osoba čiji su nastupi razasuti po tuđim kanalima dobiva kanal-oblik. Frontend
+je isporučen u `domovina.ai` v2.0.122 iza `PersonChannelFlag` (runtime, `?vk=1`);
+ovaj servis mu je izvor podataka. Feature dokument i odluke O1–O10:
+`../domovina.ai/docs/plans/virtualni-kanali.md`; mjerenja koja su oblikovala
+pravilo uvrštavanja: `../domovina.ai/docs/plans/2026-09-03-virtualni-kanal-belavic.md`.
+
+### Pravilo uvrštavanja živi na JEDNOM mjestu
+
+`src/tools/person-channel.ts`. `get-person.ts` i `list-persons.ts` ga oba
+uvoze — ako se razidje, osoba bude u katalogu a njezina stranica ne bude kanal.
+
+```
+episode_count(primary) >= 3
+  AND channel_count    >= 3      -- domaćin praćenog kanala ovdje pada
+  AND max_channel_share <= 0.6   -- 97 % epizoda na jednom kanalu = domaćin
+  AND slug ima >= 2 tokena       -- "ana", "luka" skupljaju više ljudi
+  AND slug nije rolna oznaka     -- "pjevac", "svecenik", "voditelj"
+  AND NOT optout
+```
+
+**Zašto nije samo „≥ 3 epizode" kako je izvorni plan tražio** (mjereno
+3.9.2026., 150 085 chunkova / 3157 epizoda): taj prag daje **311** osoba, među
+njima fra Stjepan Brčina (178 ep, 97 % na jednom kanalu), Željka Markić (160 ep,
+97 %) i Vinko Mihaljević (109 ep, 100 %) — domaćini koji već imaju svoju `/c/`
+stranicu, pa bi ih katalog nosio dvaput. S punim pravilom: **74**.
+
+### Dvije mjere koje nemaju vlastitu kolonu
+
+| Podatak | Kako se dobiva | Zamka |
+|---|---|---|
+| `duration_seconds` | `max(end_ts)` po epizodi | PG `episodes.duration_sec` je 0 za većinu redaka, a cloud PG tu tablicu **uopće nema**. Chunkovi su jedini izvor koji postoji svugdje. |
+| `speaking_seconds` | `sum((end_ts − start_ts) / broj_govornika_u_chunku)` | `speaker` je comma-joined; naivni `sum(end_ts − start_ts)` pripiše svakom govorniku PUNO trajanje zajedničkog chunka i napuše udio u panelima — točno ono na što je tier prag od 15 % najosjetljiviji. |
+
+Podjela nije egzaktna kao per-cue diarizirani SRT (to je F1-T3 u
+`docs/plans/2026-07-29-f1-adhoc-epizode-s-cdn.md`), ali je nepristrana i ne
+traži novi ingest.
+
+**Zamka u `get-person.ts`:** `WHERE` hvata sve chunkove epizode (treba za
+`max(end_ts)`), pa `first_ts` MORA biti `minIf(start_ts, osoba_govori)`. Goli
+`min()` vraća početak epizode i deep link vodi na tuđi uvod.
+
+### Endpointi
+
+| Ruta | Cache | Što vraća |
+|---|---|---|
+| `GET /api/persons` | `max-age=900` | Enumerabilan indeks virtualnih kanala (`list-persons.ts`). Troše ga katalog `/channels`, home rail, pretraga i TV lane. |
+| `GET /api/person/:slug` | `max-age=300` | Postojeći hub + aditivna polja: `is_virtual_channel`, `ambiguous`, `optout`, `cameo_episodes[]`, `cameo_episode_count`; po epizodi `channel_name`, `channel_youtube_id`, `channel_tracked`, `duration_seconds`, `speaking_seconds`, `speaking_share`, `tier`. |
+| `POST /api/person-report` | — | Prijava krivo pripisane epizode. Vraća **202**, ne 200. |
+
+**Enumeracija ide kroz PG `speakers`, NIKAD kroz sirovi CH `speaker`.** Sirova
+kolona je diarizacijski izlaz: `UNKNOWN` (1534 epizode / 47 kanala), `Voditelj`
+(885), `SPEAKER_00` (137), `Gost 1` (63). Svaka od njih prolazi svaki brojčani
+prag. `speakers` ih ne sadrži. `needs_review` NIJE upotrebljiv kao filtar —
+postavljen je na svih 2698 redaka.
+
+`channel_tracked` se čita iz `https://cdn.domovina.ai/channels/data/index.json`
+(15 min in-memory cache). Ako CDN padne, polje je `false` za sve i chip postaje
+neklikabilan tekst — tvrditi da je kanal praćen pa poslati korisnika u 404 je
+gore od izostanka linka. **Prazan rezultat se ne kešira.**
+
+### Kuracija i pravo na uklanjanje (migracija 006)
+
+`person_channel_overrides` i `person_optouts` su **tombstone** tablice: moraju
+preživjeti `python -m etl speakers` i svaki rerun ingesta, inače sljedeći ingest
+vrati uklonjenu osobu natrag u katalog.
+
+**`confirmed` je razlika između prijave i odluke.** Gumb „Prijavi grešku" u appu
+piše redak s `confirmed = false`; agregacija primjenjuje **samo `confirmed = true`**.
+Bez te podjele bi javni gumb bez ikakve autentikacije bio brisač tuđih epizoda
+iz kataloga.
+
+Opt-out (`person_optouts`) gasi kanal, ali `/p/{slug}` **namjerno ostaje 200** s
+`optout: true` — frontend to crta kao minimalni profil (ime + poruka). 404 bi
+razbio već podijeljene linkove. Taj prikaz NIJE iza feature flaga.
+
+### Deploy runbook (uz gornji)
+
+```bash
+# 1. Migracija 006 (PG init.sql se NE re-runa nakon prvog deploya):
+psql "$POSTGRES_URL" -f infra/postgres/migrations/006_person_channel.sql
+
+# 2. Servis:
+services/mcp/deploy.sh          # Coolify REST — nema push-webhooka
+
+# 3. Verifikacija:
+curl -s https://mcp.domovina.ai/api/persons | jq '.person_count'
+curl -s https://mcp.domovina.ai/api/person/tomislav-belavic \
+  | jq '{vk: .is_virtual_channel, ep: .episode_count, tracked: [.episodes[].channel_tracked]}'
+```
+
+Očekivano nakon deploya: `person_count` ≈ 74 (cloud CH je svježiji od lokalnog,
+pa brojka može biti veća), Belavić `is_virtual_channel: true` / 6 epizoda / svih
+6 kanala praćeno.
+
+**Ugovor prema frontendu čuva test u drugom repou**:
+`../domovina.ai/test/person_backend_contract_test.dart` čita stvarne odgovore
+ovih endpointa uhvaćene u `test/fixtures/person_belavic_live.json` i
+`persons_index_live.json`. Promijeniš li ime ili tip polja, taj test pukne —
+inače bi `fromJson` tiho pao na default i feature bi se ugasio bez ijedne greške.
+
+### Ostaje neriješeno
+
+- **Fragmentacija po prezimenu**: „David Bernard" (84 ep) i „David Barnard"
+  (68 ep) su ista osoba pod dva sluga. `speakers.aliases[]` to može spojiti, ali
+  nitko ih nije spojio. Vidi `docs/person-data-gaps.md` §1.
+- **`avg_magisterium_score` je uvijek `null`** — ocjene ne žive u `rag_chunks`.
+  Frontend null uredno preskače (pilula se ne crta).
+- **Ad-hoc epizode** (`_unlisted`, npr. Marijana Šarolić Robić 16/17 epizoda
+  izvan korpusa) i dalje čekaju F1. Ne blokira osobe čije su epizode s praćenih
+  kanala.

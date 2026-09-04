@@ -10,8 +10,10 @@
 // pa je glavni rizik samo abuse volumena → rate limit + kratki CDN cache.
 
 import type { ClickHouseClient } from "@clickhouse/client";
+import express from "express";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Pool } from "pg";
+import { z } from "zod";
 
 import type { Config } from "./config.js";
 import type { EmbedderClient } from "./embedder.js";
@@ -22,6 +24,15 @@ import {
   searchMapPoints,
 } from "./tools/search-podcasts.js";
 import { GetPersonInput, getPerson, PersonNotFoundError } from "./tools/get-person.js";
+import { listPersons } from "./tools/list-persons.js";
+
+// Prijava greške uz epizodu u virtualnom kanalu. `reason` je slobodan tekst
+// korisnika — kratimo ga jer ide u bazu i čita ga čovjek, ne stroj.
+const PersonReportInput = z.object({
+  slug: z.string().min(1).max(120),
+  youtube_id: z.string().min(1).max(32),
+  reason: z.string().trim().max(500).optional(),
+});
 
 export interface PublicApiDeps {
   ch: ClickHouseClient;
@@ -232,8 +243,89 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
   app.options("/api/person/:slug", cors);
   app.get("/api/person/:slug", cors, handlePerson);
 
+  // ─── Indeks virtualnih kanala: GET /api/persons ─────────────────────────
+  // Enumerabilan popis osoba koje su prešle prag (list-persons.ts). Troše ga
+  // katalog /channels, home rail, pretraga i TV lane. Ruta je registrirana
+  // ODVOJENO od /api/person/:slug — Express ih ne miješa jer je putanja
+  // različita, ali redoslijed držimo eksplicitnim radi čitljivosti.
+  const handlePersons = (req: Request, res: Response) => {
+    if (!rateLimit(req, res)) return; // 429 already sent
+
+    listPersons({ ch: deps.ch, pg: deps.pg })
+      .then((index) => {
+        // 15 min: indeks se mijenja tek s ingestom, a mijenja ga i ručna
+        // kuracija (exclude/opt-out) — duže bi značilo da uklanjanje osobe
+        // čeka predugo na rubu.
+        res.setHeader("Cache-Control", "public, max-age=900");
+        res.json(index);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[public-api] /api/persons failed:", msg);
+        if (!res.headersSent) res.status(500).json({ error: "internal" });
+      });
+  };
+
+  app.options("/api/persons", cors);
+  app.get("/api/persons", cors, handlePersons);
+
+  // ─── Prijava greške u virtualnom kanalu: POST /api/person-report ────────
+  //
+  // "Prijavi grešku" uz epizodu na profilu. Obrana od lažne atribucije
+  // govornika (loša diarizacija, ASCII-fold mismatch) — tier prag tu ne pomaže
+  // jer epizoda nije prekratka, nego TUĐA.
+  //
+  // Prijava se NE primjenjuje sama. Piše redak s `confirmed = false`, a
+  // agregacija čita samo `confirmed = true`. Bez te podjele bi javni gumb bez
+  // ikakve autentikacije bio brisač tuđih epizoda iz kataloga.
+  const handlePersonReport = (req: Request, res: Response) => {
+    if (!rateLimit(req, res)) return; // 429 already sent
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const parsed = PersonReportInput.safeParse({
+      slug: body.slug,
+      youtube_id: body.youtube_id,
+      reason: body.reason,
+    });
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", detail: parsed.error.issues });
+      return;
+    }
+    const { slug, youtube_id, reason } = parsed.data;
+
+    deps.pg
+      .query(
+        `INSERT INTO person_channel_overrides
+           (slug, youtube_id, action, reason, confirmed, report_count)
+         VALUES ($1, $2, 'exclude', $3, false, 1)
+         ON CONFLICT (slug, youtube_id) DO UPDATE
+           SET report_count = person_channel_overrides.report_count + 1,
+               -- Prvi razlog se ČUVA: kasnije prijave ga ne prepisuju, da se
+               -- izvorni opis greške ne izgubi pod nizom praznih prijava.
+               reason = COALESCE(person_channel_overrides.reason, EXCLUDED.reason),
+               updated_at = now()
+         WHERE NOT person_channel_overrides.confirmed`,
+        [slug, youtube_id, reason ?? null],
+      )
+      .then(() => {
+        // 202, ne 200: prijava je zaprimljena, odluka nije donesena.
+        res.status(202).json({ status: "received" });
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[public-api] /api/person-report failed:", msg);
+        // Migracija 006 možda nije primijenjena. Korisniku ne serviramo 500 za
+        // nešto što ne može popraviti; prijava je izgubljena, ali je zapisana
+        // u log servisa.
+        if (!res.headersSent) res.status(202).json({ status: "received" });
+      });
+  };
+
+  app.options("/api/person-report", cors);
+  app.post("/api/person-report", cors, express.json({ limit: "8kb" }), handlePersonReport);
+
   console.error(
-    `[public-api] /api/search + /api/person enabled (origins=${config.publicSearchAllowedOrigins.join(",")}, ` +
+    `[public-api] /api/search + /api/person + /api/persons enabled (origins=${config.publicSearchAllowedOrigins.join(",")}, ` +
       `rate=${config.publicSearchRatePerMinute}/min)`,
   );
 }

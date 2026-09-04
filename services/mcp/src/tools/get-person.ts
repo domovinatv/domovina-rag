@@ -17,6 +17,12 @@ import type { ClickHouseClient } from "@clickhouse/client";
 import type { Pool } from "pg";
 import { z } from "zod";
 
+import {
+  classifyTier,
+  judgeVirtualChannel,
+  loadTrackedChannels,
+} from "./person-channel.js";
+
 
 export const GetPersonInput = z.object({
   slug: z
@@ -66,6 +72,16 @@ export interface PersonEpisode {
   upload_date: string;
   first_ts: number; // najranija sekunda u kojoj osoba govori u epizodi
   deep_link: string;
+  // ─── Virtualni kanali (aditivno; stari klijenti ova polja ignoriraju) ───
+  // Ime i UC id izvornog kanala + je li praćen. Praćen kanal ima /c/<slug>
+  // stranicu pa chip smije biti klikabilan; ad-hoc izvor (N1, Lider) nema.
+  channel_name: string;
+  channel_youtube_id: string | null;
+  channel_tracked: boolean;
+  duration_seconds: number | null;
+  speaking_seconds: number | null;
+  speaking_share: number | null;
+  tier: "primary" | "cameo";
 }
 
 // Epizoda u kojoj se osoba SPOMINJE (summary.mentioned_people) ali NE govori.
@@ -107,6 +123,18 @@ export interface PersonHub {
   // (samo se spominje) inače nema ni raspodjelu po kanalima ni timeline.
   mention_channels: CountBucket[];
   mention_timeline: MonthBucket[];
+  // ─── Virtualni kanali (aditivno) ────────────────────────────────────────
+  // Smije li se profil prikazati u kanal-formi. Frontend uz ovo traži i svoj
+  // PersonChannelFlag, pa `true` ovdje ne znači da je korisnik nešto vidio.
+  is_virtual_channel: boolean;
+  // Jedan slug pokriva više različitih osoba (preklapajući aliasi) — kanal-forma
+  // se tada NE aktivira, jer bi tuđi nastupi bili pripisani jednoj osobi.
+  ambiguous: boolean;
+  // Osoba je tražila uklanjanje (O8). Frontend crta minimalni profil.
+  optout: boolean;
+  // `cameo` nastupi žive odvojeno da hero brojka ostane poštena.
+  cameo_episodes: PersonEpisode[];
+  cameo_episode_count: number;
 }
 
 
@@ -222,6 +250,72 @@ function aggregate(
 }
 
 
+// ─── Kuracija: overrides + opt-out (migracija 006) ──────────────────────────
+//
+// Obje tablice su tombstone i obje su OPCIONALNE: dok migracija 006 nije
+// primijenjena, upiti padnu i vraćamo prazno stanje umjesto 500. Isti obrazac
+// kao fetchMentionRows za pre-003 baze — endpoint mora raditi na svakoj bazi
+// koja je ikad bila u produkciji.
+
+interface PersonCuration {
+  excluded: Set<string>;      // youtube_id koje je čovjek maknuo iz kanala
+  forcedPrimary: Set<string>; // youtube_id koje je čovjek vratio u primary
+  optedOut: boolean;
+}
+
+const EMPTY_CURATION: PersonCuration = {
+  excluded: new Set(),
+  forcedPrimary: new Set(),
+  optedOut: false,
+};
+
+async function fetchCuration(pg: Pool, slug: string): Promise<PersonCuration> {
+  const [overrides, optouts] = await Promise.all([
+    pg
+      .query<{ youtube_id: string; action: string }>(
+        `SELECT youtube_id, action FROM person_channel_overrides
+         WHERE slug = $1 AND confirmed`,
+        [slug],
+      )
+      .then((r) => r.rows)
+      .catch(() => []),
+    pg
+      .query<{ slug: string }>(`SELECT slug FROM person_optouts WHERE slug = $1`, [slug])
+      .then((r) => r.rows)
+      .catch(() => []),
+  ]);
+
+  const excluded = new Set<string>();
+  const forcedPrimary = new Set<string>();
+  for (const o of overrides) {
+    if (o.action === "exclude") excluded.add(o.youtube_id);
+    else if (o.action === "force_primary") forcedPrimary.add(o.youtube_id);
+  }
+  return { excluded, forcedPrimary, optedOut: optouts.length > 0 };
+}
+
+
+// Dijeli li ijedan alias ove osobe s nekom DRUGOM osobom? Ako da, CH upit
+// (koji matcha po aliasima) skuplja nastupe više ljudi pod jedan slug i
+// kanal-forma se ne smije aktivirati — brojka „6 epizoda" bila bi zbroj dvoje
+// ljudi. Danas ne postoji nijedno preklapanje; provjera je ograda za budući
+// `python -m etl speakers` koji ga stvori.
+async function isAmbiguous(pg: Pool, slug: string, aliases: string[]): Promise<boolean> {
+  if (aliases.length === 0) return false;
+  try {
+    const res = await pg.query<{ n: string }>(
+      `SELECT count(*) AS n
+         FROM speakers s, jsonb_array_elements_text(s.aliases) AS a
+        WHERE s.slug <> $1 AND a = ANY($2::text[])`,
+      [slug, aliases],
+    );
+    return Number(res.rows[0]?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+
 interface SpeakerRow {
   canonical_name: string;
   slug: string;
@@ -234,6 +328,8 @@ interface EpisodeRow {
   channel: string;
   upload_date: string;
   first_ts: number;
+  duration_seconds: number | string;
+  speaking_seconds: number | string;
   sample_metadata: string;
 }
 
@@ -260,7 +356,7 @@ export async function getPerson(
   // 1. Slug → osoba (PG). Slug se lowercase-a jer je pohranjen lowercase.
   //    Spomene dohvaćamo UVIJEK i paralelno — oni su drugi izvor identiteta,
   //    pa i osoba bez speakers reda može imati profil.
-  const [{ rows: speakerRows }, mentionRows] = await Promise.all([
+  const [{ rows: speakerRows }, mentionRows, curation] = await Promise.all([
     deps.pg.query<SpeakerRow>(
       `SELECT canonical_name, slug, avatar_url, aliases
        FROM speakers
@@ -268,6 +364,9 @@ export async function getPerson(
       [slug],
     ),
     fetchMentionRows(deps.pg, slug),
+    // Opt-out se čita UVIJEK, i za osobu koja se samo spominje: pravo na
+    // uklanjanje ne ovisi o tome je li osoba ikad govorila.
+    fetchCuration(deps.pg, slug).catch(() => EMPTY_CURATION),
   ]);
 
   const person = speakerRows[0] ?? null;
@@ -299,22 +398,56 @@ export async function getPerson(
       mention_episode_count: mentions.length,
       mention_channels: agg.channels,
       mention_timeline: agg.timeline,
+      // Bez ijedne epizode u kojoj GOVORI nema kanala: kanal je sadržaj OD
+      // osobe, spomen je sadržaj O osobi (O3). Profil ostaje, kanal-forma ne.
+      is_virtual_channel: false,
+      ambiguous: false,
+      optout: curation.optedOut,
+      cameo_episodes: [],
+      cameo_episode_count: 0,
     };
   }
 
   // 2. CH: sve epizode u kojima je osoba JEDAN od comma-separated govornika.
   //    Whole-token match: split po zarezu, trim svaki, IN aliases[].
+  // `duration_seconds` = max(end_ts): epizoda traje barem do kraja zadnjeg
+  // chunka. PG `episodes.duration_sec` je 0 za većinu redaka, a cloud PG tu
+  // tablicu uopće nema — chunkovi su jedini izvor koji postoji svugdje.
+  //
+  // `speaking_seconds` dijeli trajanje chunka s BROJEM govornika u njemu.
+  // `speaker` je comma-joined ("Ante Čaljkušić,Dijana Brozović"), pa bi naivni
+  // sum(end_ts - start_ts) pripisao svakom govorniku puno trajanje zajedničkog
+  // chunka i napuhao udio u panelima — točno ono na što je tier prag od 15 %
+  // najosjetljiviji. Podjela nije egzaktna kao per-cue diarizirani SRT, ali je
+  // nepristrana i ne traži novi ingest.
   const sql = `
     SELECT
       youtube_id,
       any(channel) AS channel,
       toString(any(upload_date)) AS upload_date,
-      min(start_ts) AS first_ts,
+      -- minIf, NE min: WHERE sada hvata SVE chunkove epizode (treba za
+      -- max(end_ts)), pa bi goli min() vratio početak epizode umjesto trenutka
+      -- u kojem osoba prvi put progovori — i deep link bi vodio na tuđi uvod.
+      minIf(start_ts, arrayExists(
+        x -> x IN {aliases:Array(String)},
+        arrayMap(t -> trim(BOTH ' ' FROM t), splitByChar(',', speaker))
+      )) AS first_ts,
+      round(max(end_ts)) AS duration_seconds,
+      round(sumIf(
+        (end_ts - start_ts) / length(splitByChar(',', speaker)),
+        arrayExists(
+          x -> x IN {aliases:Array(String)},
+          arrayMap(t -> trim(BOTH ' ' FROM t), splitByChar(',', speaker))
+        )
+      )) AS speaking_seconds,
       any(metadata) AS sample_metadata
     FROM rag_chunks
-    WHERE arrayExists(
-      x -> x IN {aliases:Array(String)},
-      arrayMap(t -> trim(BOTH ' ' FROM t), splitByChar(',', speaker))
+    WHERE youtube_id IN (
+      SELECT youtube_id FROM rag_chunks
+      WHERE arrayExists(
+        x -> x IN {aliases:Array(String)},
+        arrayMap(t -> trim(BOTH ' ' FROM t), splitByChar(',', speaker))
+      )
     )
     GROUP BY youtube_id
     ORDER BY upload_date DESC
@@ -327,21 +460,54 @@ export async function getPerson(
   });
   const rows = (await resultSet.json()) as EpisodeRow[];
 
-  const episodes: PersonEpisode[] = rows.map((r) => {
-    const firstTs = Math.max(0, Math.round(Number(r.first_ts)));
-    return {
-      youtube_id: r.youtube_id,
-      title: parseEpisodeTitle(r.sample_metadata),
-      channel: r.channel,
-      upload_date: r.upload_date,
-      first_ts: firstTs,
-      deep_link: `https://domovina.ai/v/${r.youtube_id}/t/${firstTs}`,
-    };
-  });
+  const [tracked, ambiguous] = await Promise.all([
+    loadTrackedChannels(),
+    isAmbiguous(deps.pg, slug, aliases),
+  ]);
+
+  const allEpisodes: PersonEpisode[] = rows
+    // `exclude` override je ručna ispravka lažne atribucije — epizoda ispada iz
+    // kanala potpuno, i iz brojki. /v/{id} ostaje, to je javni YouTube video.
+    .filter((r) => !curation.excluded.has(r.youtube_id))
+    .map((r) => {
+      const firstTs = Math.max(0, Math.round(Number(r.first_ts)));
+      const durationSeconds = Math.max(0, Math.round(Number(r.duration_seconds) || 0)) || null;
+      const speakingSeconds = Math.max(0, Math.round(Number(r.speaking_seconds) || 0)) || null;
+      const ch = tracked.get(r.channel);
+      const tier = curation.forcedPrimary.has(r.youtube_id)
+        ? ("primary" as const)
+        : classifyTier(speakingSeconds, durationSeconds);
+      return {
+        youtube_id: r.youtube_id,
+        title: parseEpisodeTitle(r.sample_metadata),
+        channel: r.channel,
+        upload_date: r.upload_date,
+        first_ts: firstTs,
+        deep_link: `https://domovina.ai/v/${r.youtube_id}/t/${firstTs}`,
+        channel_name: ch?.name ?? r.channel,
+        channel_youtube_id: ch?.youtubeChannelId ?? null,
+        channel_tracked: ch !== undefined,
+        duration_seconds: durationSeconds,
+        speaking_seconds: speakingSeconds,
+        speaking_share:
+          durationSeconds !== null && speakingSeconds !== null && durationSeconds > 0
+            ? Math.round((speakingSeconds / durationSeconds) * 1000) / 1000
+            : null,
+        tier,
+      };
+    });
+
+  // `episodes[]` ostaje ono što je i bilo — glavni nastupi. Cameo ide u zaseban
+  // popis da `episode_count` (hero brojka, kartica u katalogu) ne tvrdi nastup
+  // ondje gdje je osoba rekla dvije rečenice u panelu od dva sata.
+  const episodes = allEpisodes.filter((e) => e.tier === "primary");
+  const cameoEpisodes = allEpisodes.filter((e) => e.tier === "cameo");
 
   // 3. channels[] + timeline[] agregirani u JS-u iz punog seta epizoda
   //    (max ~150 po osobi → jeftino, jedan CH round-trip).
   const { channels, timeline } = aggregate(episodes);
+
+  const verdict = judgeVirtualChannel(slug, episodes, curation.optedOut);
 
   // 4. Mentions: epizode gdje se osoba SPOMINJE ali NE govori. Izbaci sve
   //    youtube_id koji su već u episodes[] (govori ima prednost).
@@ -362,5 +528,10 @@ export async function getPerson(
     mention_episode_count: mentions.length,
     mention_channels: mentionAgg.channels,
     mention_timeline: mentionAgg.timeline,
+    is_virtual_channel: verdict.isVirtualChannel && !ambiguous,
+    ambiguous,
+    optout: curation.optedOut,
+    cameo_episodes: cameoEpisodes,
+    cameo_episode_count: cameoEpisodes.length,
   };
 }
