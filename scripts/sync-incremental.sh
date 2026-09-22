@@ -136,8 +136,29 @@ if [ "$SKIP_ETL" -eq 0 ]; then
     # korpusu nepotpuna (nijedan agregat to ne pokazuje — chunkova je manje, ali
     # nitko ne zna koliko ih je trebalo biti). Stari filter je propuštao samo
     # Pronađeno|Done:|ERROR, pa je taj WARNING padao u ništa.
+    ETL_OUT=$(mktemp)
     DATA_SOURCE_DIR="$dir" docker compose --profile etl run --rm etl \
-      ingest --input /data --batch-size "$ETL_BATCH" 2>&1 | grep -E 'Pronađeno|Done:|ERROR|error|WARNING|preskočen' || true
+      ingest --input /data --batch-size "$ETL_BATCH" 2>&1 \
+      | grep -E 'Pronađeno|Done:|ERROR|error|WARNING|preskočen' | tee "$ETL_OUT" || true
+
+    # ETL vrati rc=0 i kad nijedna epizoda nije ušla. Od 14.08. do 22.09.2026.
+    # je svaka noć završavala s `Done: processed=0 skipped=3169 chunks=0
+    # errors=111` (embedder kontejner mrtav, svaki embed ConnectError), pa
+    # `Delta: 0`, pa "cloud je up-to-date", pa rc=0 — pet tjedana zelenih logova
+    # uz nula novih epizoda u korpusu. Ta kombinacija je JEDINI signal, zato se
+    # ovdje pretvara u status-fajl koji sync-cron.sh digne u WARN.
+    ETL_PROC=$(sed -n 's/.*Done: processed=\([0-9]*\).*/\1/p' "$ETL_OUT" | tail -1)
+    ETL_ERRS=$(sed -n 's/.*Done: .*errors=\([0-9]*\).*/\1/p' "$ETL_OUT" | tail -1)
+    rm -f "$ETL_OUT"
+    if [ -n "${ETL_ERRS:-}" ] && [ "${ETL_ERRS:-0}" -gt 0 ] && [ "${ETL_PROC:-0}" -eq 0 ]; then
+      log "ERROR: ETL nije unio NIJEDNU epizodu, a $ETL_ERRS ih je palo (processed=0)."
+      log "       Najčešći uzrok: embedder nije dohvatljiv IZ KONTEJNERA."
+      log "       EMBEDDER_URL=${EMBEDDER_URL:-<nije postavljen → compose default http://embedder:8000>}"
+      printf 'FAIL-ETL processed=0 errors=%s (%s)\n' "$ETL_ERRS" "$dir" \
+        >> "$(dirname "$0")/../.ingest-logs/.etl-status"
+    elif [ -n "${ETL_ERRS:-}" ] && [ "${ETL_ERRS:-0}" -gt 0 ]; then
+      log "WARN: ETL: $ETL_ERRS epizoda palo (uneseno $ETL_PROC) — vidi ERROR retke iznad."
+    fi
   done
 else
   log "Preskačem ETL (--skip-etl/--dry-run)."

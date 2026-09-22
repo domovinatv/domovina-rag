@@ -90,19 +90,19 @@ python3 -m venv .venv
 
 # Pokreni (na svaki dev start)
 EMBEDDER_DEVICE=mps \
-  .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+  .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8008
 ```
 
-Drugi kontejneri zovu `http://host.docker.internal:8000` (Docker Desktop gateway). `.env` mora imati:
+Drugi kontejneri zovu `http://host.docker.internal:8008` (Docker Desktop gateway). Port je 8008, ne 8000 — 8000 zna zauzeti drugi lokalni projekt, a macOS SO_REUSEADDR pusti oba binda pa se kvar vidi tek kao 404 na `/health`. `.env` mora imati (i NE smije biti zakomentirano):
 ```
-EMBEDDER_URL=http://host.docker.internal:8000
+EMBEDDER_URL=http://host.docker.internal:8008
 ```
 
 ### Standalone HTTP test
 
 ```bash
 # Embed jedan tekst
-curl -X POST http://localhost:8000/embed \
+curl -X POST http://localhost:8008/embed \
   -H "Content-Type: application/json" \
   -d '{"texts": ["iskustvo kliničke smrti"]}' | jq '.vectors[0][:5]'
 # Vraća prvih 5 floata iz 1024-d vektora

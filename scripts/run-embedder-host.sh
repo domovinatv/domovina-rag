@@ -1,8 +1,10 @@
 #!/bin/bash
 # Pokreće embedder natively na hostu s Apple Silicon MPS GPU acceleracijom.
 #
-# Kontejneri (mcp, etl) ga zovu preko `host.docker.internal:8000` —
-# vidi `EMBEDDER_URL` u .env.
+# Kontejneri (mcp, etl) ga zovu preko `host.docker.internal:$EMBEDDER_PORT` —
+# vidi `EMBEDDER_URL` u .env. Port je 8008, NE 8000: na ovom Macu 8000 zna
+# zauzeti drugi projekt (newsroom-be), a macOS SO_REUSEADDR pusti oba binda pa
+# se kvar vidi tek kao 404 na /health.
 #
 # Usage:
 #   bash scripts/run-embedder-host.sh           # foreground, Ctrl-C za stop
@@ -41,5 +43,6 @@ export LOG_LEVEL=${LOG_LEVEL:-INFO}
 # Pri prvom run-u sentence-transformers download bge-m3 weights (~2GB) u
 # ~/.cache/huggingface/. Sljedeći run-ovi koriste cache.
 
-echo "Starting host embedder on :8000 (device=mps)"
-exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
+EMBEDDER_PORT=${EMBEDDER_HOST_PORT:-8008}
+echo "Starting host embedder on :$EMBEDDER_PORT (device=mps)"
+exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "$EMBEDDER_PORT" --no-access-log

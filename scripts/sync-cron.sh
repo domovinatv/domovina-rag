@@ -51,11 +51,26 @@ warn() {
 # shellcheck disable=SC1091
 [ -f .env ] && { set -a; . ./.env; set +a; }
 
+# ─── 1b. Embedder: port i URL koji ETL stvarno zove ───────────────────────────
+# Port 8000 na ovom Macu nije naš — drugi projekti (newsroom-be) bindaju
+# 127.0.0.1:8000. macOS SO_REUSEADDR pusti naš embedder da svejedno bindne
+# 0.0.0.0:8000, pa u logu uredno piše "Uvicorn running", ali `localhost:8000`
+# ide squatteru (FastAPI 404) i health-check ispod padne. Zato vlastiti port.
+EMBEDDER_PORT="${EMBEDDER_HOST_PORT:-8008}"
+# ETL se vrti u KONTEJNERU i bez ovog override-a uzima compose default
+# `http://embedder:8000` (servis iz `full` profila). Taj kontejner je ubijen
+# 14.08.2026. i nikad se nije vratio: pet tjedana je svaka nova epizoda padala
+# na ConnectError dok je health-check ispod javljao "Embedder OK" — jer mjeri
+# HOST embedder, a ne onaj koji ETL zove. Dvije različite stvari; drži ih
+# spojene ovdje, na jednom mjestu.
+export EMBEDDER_URL="${EMBEDDER_URL:-http://host.docker.internal:$EMBEDDER_PORT}"
+
 # ─── 1. Caffeinate (drži Mac budan dok wrapper živi) ──────────────────────────
 caffeinate -i -w $$ &
 
 # ─── 2. Embedder up? ──────────────────────────────────────────────────────────
-if ! curl -s -m 5 http://localhost:8000/health 2>/dev/null | grep -q '"loaded":true'; then
+echo "[cron] Embedder: host :$EMBEDDER_PORT, ETL ga zove na $EMBEDDER_URL"
+if ! curl -s -m 5 "http://localhost:$EMBEDDER_PORT/health" 2>/dev/null | grep -q '"loaded":true'; then
   echo "[cron] Embedder nije gore — pokrećem MPS host embedder..."
   pkill -9 -f "uvicorn app.main" 2>/dev/null || true
   sleep 1
@@ -66,20 +81,37 @@ if ! curl -s -m 5 http://localhost:8000/health 2>/dev/null | grep -q '"loaded":t
   # stabilne postavke. Vidi docs/mps-embedder-memory.md §6.
   ( cd services/embedder && \
     EMBEDDER_DEVICE=mps \
-    nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+    nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "$EMBEDDER_PORT" \
     >"$REPO/.ingest-logs/embedder-host.log" 2>&1 & )
-  # Čekaj model load (do 90s)
-  for _ in $(seq 1 30); do
+  # Čekaj model load (do 180s). bge-m3 na hladnom MPS-u zna preko 90 s.
+  for _ in $(seq 1 60); do
     sleep 3
-    curl -s -m 5 http://localhost:8000/health 2>/dev/null | grep -q '"loaded":true' && break
+    curl -s -m 5 "http://localhost:$EMBEDDER_PORT/health" 2>/dev/null | grep -q '"loaded":true' && break
   done
 fi
-if curl -s -m 5 http://localhost:8000/health 2>/dev/null | grep -q '"loaded":true'; then
+if curl -s -m 5 "http://localhost:$EMBEDDER_PORT/health" 2>/dev/null | grep -q '"loaded":true'; then
   echo "[cron] Embedder OK."
 else
-  echo "[cron] ERROR: embedder se nije podigao — prekidam (ETL bi failao na embed)."
+  echo "[cron] ERROR: embedder se nije podigao na :$EMBEDDER_PORT — prekidam (ETL bi failao na embed)."
+  echo "[cron]        Provjeri zauzeće porta: lsof -nP -iTCP:$EMBEDDER_PORT -sTCP:LISTEN"
+  echo "[cron]        i zadnjih 20 redaka: .ingest-logs/embedder-host.log"
   exit 1
 fi
+
+# Embedder odgovara na hostu — ali ETL ga zove IZ KONTEJNERA, drugom rutom.
+# Ako EMBEDDER_URL pokazuje na compose servis `embedder`, taj kontejner mora
+# biti gore; upravo je njegova smrt 14.08.2026. pet tjedana prolazila ispod
+# radara jer je health-check gledao host embedder.
+case "$EMBEDDER_URL" in
+  *host.docker.internal*) : ;;  # host embedder — upravo provjeren iznad
+  *)
+    if ! docker ps --format '{{.Names}}' | grep -q embedder; then
+      echo "[cron] WARN: EMBEDDER_URL=$EMBEDDER_URL pokazuje na compose servis,"
+      echo "[cron]       a nijedan embedder kontejner nije gore. ETL će pasti na"
+      echo "[cron]       ConnectError. Odkomentiraj EMBEDDER_URL=http://host.docker.internal:$EMBEDDER_PORT u .env."
+    fi
+    ;;
+esac
 
 # ─── 3. Lokalni CH + PG up? ───────────────────────────────────────────────────
 if ! docker ps --filter name=clickhouse --format '{{.Names}}' | grep -qi domovina; then
@@ -90,8 +122,17 @@ fi
 
 # ─── 4. Sync ClickHouse (semantička baza) ─────────────────────────────────────
 echo "[cron] Pokrećem sync-incremental.sh (ClickHouse delta)..."
+rm -f "$REPO/.ingest-logs/.etl-status"
 ./scripts/sync-incremental.sh
 RC=$?
+
+# ETL vrati rc=0 i kad NIJEDNA epizoda nije ušla — `Done: processed=0 … errors=111`
+# pa `Delta: 0` pa "cloud je up-to-date". Točno tako je korpus od 14.08. do
+# 22.09.2026. tiho stajao na 3157 epizoda dok je disk imao 3303. Status-fajl piše
+# sync-incremental.sh; ovdje se samo pretvori u WARN koji se ponovi u zadnjem retku.
+if [ -f "$REPO/.ingest-logs/.etl-status" ] && grep -q '^FAIL' "$REPO/.ingest-logs/.etl-status"; then
+  warn "ETL: $(cat "$REPO/.ingest-logs/.etl-status") — nijedna nova epizoda nije ušla u korpus."
+fi
 
 # ─── 5. Re-index Meili (keyword tražilica) ────────────────────────────────────
 # Meili index je derivat CH-a — kad CH dobije nove epizode, Meili treba refresh.
