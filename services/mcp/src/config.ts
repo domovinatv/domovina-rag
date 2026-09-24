@@ -72,7 +72,9 @@ export function loadConfig(): Config {
     publicSearchAllowedOrigins: optional(
       "PUBLIC_SEARCH_ALLOWED_ORIGINS",
       // stats.domovina.ai/map ucrtava pogotke u semantičku mapu (mode=map).
-      "https://domovina.ai,https://www.domovina.ai,https://stats.domovina.ai,http://localhost:5173",
+      // podcasterium.com je white-label iste jezgre nad istim korpusom
+      // (person stranice, semantička pretraga na webu).
+      "https://domovina.ai,https://www.domovina.ai,https://stats.domovina.ai,https://podcasterium.com,https://www.podcasterium.com,http://localhost:5173",
     )
       .split(",")
       .map((o) => o.trim())
