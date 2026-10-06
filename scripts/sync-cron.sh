@@ -145,6 +145,22 @@ if [ "$RC" -eq 0 ]; then
   ./scripts/sync-meili.sh --cloud || warn "cloud Meili re-index pao/nije deployan (nastavljam)."
 fi
 
+# ─── 5b. Meili `segments` (find_in_transcript, točna sekunda) ─────────────────
+# Derivat korpusa (samo youtube_id-evi iz CH-a) + producerovih *.segments.jsonl.
+# ~1,4 M dokumenata pa DELTA po epizodi (hash datoteke), ne pun re-index —
+# obična noć = samo nove epizode, sekunde. Lokalni samo ako je lokalni Meili gore
+# (index je ~4,4 GB, a Mac disk je tijesan); cloud uvijek.
+if [ "$RC" -eq 0 ]; then
+  if curl -s -m 5 "${MEILI_URL:-http://localhost:7700}/health" 2>/dev/null | grep -q available; then
+    echo "[cron] Meili segments (lokalni)..."
+    ./scripts/sync-meili-segments.sh || warn "lokalni Meili segments sync pao (nastavljam)."
+  else
+    echo "[cron] Meili segments (lokalni): lokalni Meili nije gore — preskačem."
+  fi
+  echo "[cron] Meili segments (cloud)..."
+  ./scripts/sync-meili-segments.sh --cloud || warn "cloud Meili segments sync pao (nastavljam)."
+fi
+
 # ─── 6. Re-populate "person hub" (PG speakers) ────────────────────────────────
 # speakers je derivat CH-a (distinct govornici → slug + aliases). Kad CH dobije
 # nove epizode/govornike, tablica treba refresh inače /api/person/{slug} vraća

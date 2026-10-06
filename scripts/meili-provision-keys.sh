@@ -12,6 +12,11 @@
 #      (actions:[search], indexes:[episodes]) — read-only, siguran za browser
 #   3. ispiše MEILI_SEARCH_KEY string (za frontend dart-define / domovina-api)
 #
+# Ključ za index `segments` (MCP find_in_transcript; kasnije web „pronađi u epizodi"):
+#   MEILI_INDEX=segments MEILI_SEARCH_UID=$MEILI_SEGMENTS_SEARCH_UID \
+#     MEILI_KEY_NAME=segments-search MEILI_KEY_DESCRIPTION="segments (read-only)" \
+#     ./scripts/meili-provision-keys.sh [--cloud]
+#
 # Usage:
 #   MEILI_URL=http://localhost:7700 MEILI_MASTER_KEY=... MEILI_SEARCH_UID=... \
 #     ./scripts/meili-provision-keys.sh
@@ -69,8 +74,8 @@ else
   curl -s "${auth[@]}" -X POST "$URL/keys" --data "$(cat <<JSON
 {
   "uid": "$MEILI_SEARCH_UID",
-  "name": "frontend-search",
-  "description": "domovina.ai web keyword search (read-only)",
+  "name": "${MEILI_KEY_NAME:-frontend-search}",
+  "description": "${MEILI_KEY_DESCRIPTION:-domovina.ai web keyword search (read-only)}",
   "actions": ["search"],
   "indexes": ["$INDEX"],
   "expiresAt": null

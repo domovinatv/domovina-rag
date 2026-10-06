@@ -341,6 +341,26 @@ const ASSERTIONS = {
     return null;
   },
 
+  // find_in_transcript: payload je {episodes:[{hits:[...]}]}, ne array.
+  // Sekunde (floor start_sec) svih pogodaka s match="exact", sortirano.
+  exact_hit_seconds_equal: (payload, expected) => {
+    const got = (payload?.episodes ?? [])
+      .flatMap((e) => e.hits)
+      .filter((h) => h.match === "exact")
+      .map((h) => Math.floor(h.start_sec))
+      .sort((a, b) => a - b);
+    return JSON.stringify(got) === JSON.stringify(expected)
+      ? null
+      : `exact pogoci ${JSON.stringify(got)}, očekivano ${JSON.stringify(expected)}`;
+  },
+
+  every_hit_deep_link_is_exact_second: (payload) => {
+    const bad = (payload?.episodes ?? []).flatMap((e) =>
+      e.hits.filter((h) => !h.deep_link.endsWith(`/v/${e.youtube_id}/t/${Math.floor(h.start_sec)}`)),
+    );
+    return bad.length === 0 ? null : `${bad.length} pogodaka s krivim deep_link-om`;
+  },
+
   every_result_group_value_matches_pattern: (rows, patternStr) => {
     if (!Array.isArray(rows)) return `payload is not an array`;
     const re = new RegExp(patternStr);

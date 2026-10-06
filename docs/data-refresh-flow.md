@@ -83,7 +83,8 @@ flowchart TD
     SYNC["<b>sync-incremental.sh</b><br/>(ClickHouse delta)"] --> RC{rc == 0?}
     RC -- da --> MEILILOCAL["sync-meili.sh<br/>(lokalni re-index)"]
     MEILILOCAL --> MEILICLOUD["sync-meili.sh --cloud<br/>(cloud re-index)"]
-    MEILICLOUD --> SPKLOCAL["sync-speakers.sh<br/>(lokalni person hub)"]
+    MEILICLOUD --> SEG["sync-meili-segments.sh<br/>(lokalni ako je gore) + --cloud<br/>(delta po epizodi, 5b)"]
+    SEG --> SPKLOCAL["sync-speakers.sh<br/>(lokalni person hub)"]
     SPKLOCAL --> SPKCLOUD["sync-speakers.sh --cloud<br/>(cloud person hub)"]
     SPKCLOUD --> PMLOCAL["sync-person-mentions.sh<br/>(lokalni person_mentions)"]
     PMLOCAL --> PMCLOUD["sync-person-mentions.sh --cloud<br/>(cloud person_mentions)"]
@@ -96,6 +97,7 @@ flowchart TD
     style SYNC fill:#1a365d,color:#fff
     style MEILILOCAL fill:#553c1a,color:#fff
     style MEILICLOUD fill:#553c1a,color:#fff
+    style SEG fill:#553c1a,color:#fff
     style SPKLOCAL fill:#1a3d3d,color:#fff
     style SPKCLOUD fill:#1a3d3d,color:#fff
     style PMLOCAL fill:#1a3d3d,color:#fff
@@ -182,6 +184,35 @@ Dokument je **po epizodi** (ne po sekciji) — korisnik traži "koja epizoda pri
 X", pa uđe u nju. Searchable: `title`, `section_titles`, `article_text`.
 Fasete: `channel`, `upload_date`.
 
+### 4b. Index `segments` — `sync-meili-segments.sh`
+
+Drugi Meili index, za MCP `find_in_transcript` (pitanja „u kojem trenutku"):
+**1 dokument = 1 SRT segment** s imenom govornika i točnom sekundom. Izvor je
+producerov `{base}.segments.jsonl` (ugovor: `../fetch.domovina.tv/docs/data_contract.md`
+§14) s lokalnog diska; indeksira se samo ono što je u lokalnom CH korpusu.
+
+```mermaid
+flowchart LR
+    SJ["producer<br/>*.segments.jsonl<br/>(DOMOVINA1TB/2TB)"] --> H["SHA-256 po epizodi"]
+    LCH[("lokalni CH<br/>youtube_id korpusa")] --> D
+    H --> D{"hash ≠<br/>segments_state?"}
+    D -- da --> DEL["delete filter youtube_id<br/>+ add dokumente<br/>(25k/zahtjev, serijski)"]
+    DEL --> ST["upsert segments_state"]
+    D -- ne --> SKIP["preskoči"]
+```
+
+- Katalog ≈ **1,42 M dokumenata**, procjena ≈ **4,4 GB** na disku (izmjereno
+  3,1 KB/dok na uzorku 46k i 129k, Meili 1.11.3, `proximityPrecision: byWord`).
+  RAM tijekom indeksiranja ≈ 0,5–0,7 GiB po batchu od 25k.
+- Pun re-index nije potreban: stanje (`segments_state`, 1 dok/epizoda) živi u
+  ISTOM Meiliju, pa lokalni i cloud svaki znaju što imaju.
+- Brisanje: epizoda koja nestane iz CH-a. Epizoda kojoj samo fali datoteka (disk
+  nije montiran) ostaje. Više od `MAX_DELETE=50` brisanja odjednom → preskače uz WARN.
+- `byAttribute` bi prepolovio index, ali fraza u navodnicima tada pogađa i
+  nesusjedne riječi (izmjereno: 12/19 lažnih) — zato `byWord`.
+- Backup: `domovina-infra/scripts/server/dump-all.sh` radi `POST /dumps`, što
+  pokriva sve indexe, pa i ovaj.
+
 ---
 
 ## 5. Kako podaci stignu do klijenta (read path)
@@ -224,12 +255,13 @@ flowchart LR
     subgraph DAILY["DNEVNO — launchd 04:00 (Mac)"]
         CH["ClickHouse delta<br/>sync-incremental.sh"]
         ME["Meili re-index<br/>sync-meili.sh ×2"]
+        SG["Meili segments (delta)<br/>sync-meili-segments.sh"]
         SP["Person hub<br/>sync-speakers.sh ×2"]
         PM["person_mentions<br/>sync-person-mentions.sh ×2"]
         VM["Mapa isječaka<br/>sync-vector-map.sh"]
         PMAP["Mapa osoba<br/>sync-person-map.sh"]
         ST["Stats + deploy<br/>sync-stats.sh --deploy"]
-        CH --> ME --> SP --> PM --> VM --> PMAP --> ST
+        CH --> ME --> SG --> SP --> PM --> VM --> PMAP --> ST
     end
     subgraph MANUAL["RUČNO / na potrebu"]
         MCPD["MCP server (kod)<br/>Coolify Redeploy"]
@@ -244,6 +276,7 @@ flowchart LR
 |---|---|---|
 | **ClickHouse** (semantika) | dnevno 04:00, delta | launchd → `sync-incremental.sh` → SSH push |
 | **Meilisearch** (keyword) | dnevno 04:00, nakon CH | launchd → `sync-meili.sh --local && --cloud` |
+| **Meili `segments`** (find_in_transcript) | dnevno 04:00, nakon `episodes` | launchd → `sync-meili-segments.sh` (lokalni samo ako je Meili gore) `&& --cloud`; delta po epizodi |
 | **Person hub** (PG speakers) | dnevno 04:00, nakon CH | launchd → `sync-speakers.sh --local && --cloud` |
 | **person_mentions** (PG, "spominje se u") | dnevno 04:00, nakon speakers | launchd → `sync-person-mentions.sh --local && --cloud` (izvor uvijek lokalni CH) |
 | **Mapa isječaka** (`vector-map.*`) | dnevno 04:00, nakon person huba | launchd → `sync-vector-map.sh` (preskače ako se broj chunkova nije promijenio; 5-10 min) |
@@ -271,6 +304,8 @@ cd ~/git/domovinatv/domovina-rag
 ./scripts/sync-incremental.sh --dry-run  # samo izračun delte, bez pisanja
 ./scripts/sync-meili.sh                # lokalni Meili re-index
 ./scripts/sync-meili.sh --cloud        # cloud Meili re-index
+./scripts/sync-meili-segments.sh          # lokalni Meili `segments` (delta)
+./scripts/sync-meili-segments.sh --cloud  # cloud Meili `segments` (delta; prvo punjenje ~minute)
 ./scripts/sync-speakers.sh             # lokalni person hub (PG speakers)
 ./scripts/sync-speakers.sh --cloud     # cloud person hub
 ./scripts/sync-person-mentions.sh          # lokalni person_mentions ("spominje se u")

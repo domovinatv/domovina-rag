@@ -95,6 +95,13 @@ POSTGRES_URL=postgres://<user>:<password>@domovina-postgres:5432/<db>
 CLICKHOUSE_URL=http://<user>:<password>@domovina-clickhouse:8123/<db>
 EMBEDDER_URL=http://domovina-embedder:8000
 
+# find_in_transcript (Meili index `segments`). Bez oba alat vraća grešku, server
+# radi normalno. Ključ je search-only (actions:[search], indexes:[segments]):
+#   MEILI_INDEX=segments MEILI_SEARCH_UID=$MEILI_SEGMENTS_SEARCH_UID \
+#     MEILI_KEY_NAME=segments-search ./scripts/meili-provision-keys.sh --cloud
+MEILI_URL=http://domovina-meili:7700
+MEILI_SEGMENTS_SEARCH_KEY=<ispis provision skripte>
+
 # Public base URL — OAuth issuer + icons[] srcovi se izvode odavde
 MCP_PUBLIC_BASE_URL=https://mcp.domovina.link
 

@@ -20,6 +20,10 @@ export interface Config {
   postgresUrl: string;
   clickhouseUrl: string;
   embedderUrl: string;
+  // Meili index `segments` (find_in_transcript). Search-only ključ; bez oba → alat
+  // vraća grešku umjesto da ruši server.
+  meiliUrl: string | null;
+  meiliSegmentsKey: string | null;
   serviceName: string;
   serviceVersion: string;
   // Admin dashboard / API. Ako null → /admin* vraća 404 (admin disabled).
@@ -61,8 +65,10 @@ export function loadConfig(): Config {
     postgresUrl: required("POSTGRES_URL"),
     clickhouseUrl: required("CLICKHOUSE_URL"),
     embedderUrl: optional("EMBEDDER_URL", "http://embedder:8000"),
+    meiliUrl: process.env.MEILI_URL || null,
+    meiliSegmentsKey: process.env.MEILI_SEGMENTS_SEARCH_KEY || null,
     serviceName: "domovina-podcast",
-    serviceVersion: "0.9.0",
+    serviceVersion: "0.10.0",
     adminApiKey: process.env.ADMIN_API_KEY || null,
     rateLimitPerMinute: parseInt(optional("RATE_LIMIT_PER_MINUTE", "60"), 10),
     rateLimitPerHour: parseInt(optional("RATE_LIMIT_PER_HOUR", "1000"), 10),

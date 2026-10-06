@@ -1012,4 +1012,42 @@ export default [
       "Lista mjeseci u YYYY-MM formatu, sortirana silazno po " +
       "mention_count. Otkriva trendove kroz vrijeme.",
   },
+  // ════════════════════════════════════════════════════════════════
+  // find_in_transcript (Meili `segments`, točna sekunda)
+  // Plan: docs/plans/2026-10-06-meili-segments-pretraga-transkripta.md
+  // ════════════════════════════════════════════════════════════════
+
+  {
+    id: "find-in-transcript-matija-35Oq",
+    category: "moment",
+    requires: "current_smoke",
+    user_prompt: "U kojem trenutku snimatelj Matija ulazi u kadar u svjedočanstvu Petra Buljana?",
+    tool_call: {
+      name: "find_in_transcript",
+      // „Matija" bez navodnika: word_forms ga skrati na prefiks „Matij" pa
+      // pogađa i „Matijom" (23:16). Istina iz .diarized.srt: 117 s i 1396 s.
+      arguments: { query: "Matija", youtube_id: "35Oq01CmGWE" },
+    },
+    must_have: {
+      exact_hit_seconds_equal: [117, 1396],
+      every_hit_deep_link_is_exact_second: true,
+    },
+    expected_answer:
+      "Na 1:57 voditelj ga zove („Matija, hoćeš ti za djecu svoju? Aj dođi.\"), " +
+      "od 2:01 Matija govori; na 23:16 Petar ga spominje („sa Matijom, sa cijelom " +
+      "ovom ekipom\"). Oba s deep linkom na točnu sekundu.",
+  },
+
+  {
+    id: "find-in-transcript-phrase-exact",
+    category: "moment",
+    requires: "current_smoke",
+    user_prompt: "Gdje točno kaže „za djecu svoju\"?",
+    tool_call: {
+      name: "find_in_transcript",
+      arguments: { query: '"za djecu svoju"', youtube_id: "35Oq01CmGWE" },
+    },
+    must_have: { exact_hit_seconds_equal: [117] },
+    expected_answer: "Jedan pogodak, 1:57.",
+  },
 ];

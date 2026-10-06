@@ -196,6 +196,30 @@
           </td>
         </tr>
         <tr>
+          <td><code>find_in_transcript</code></td>
+          <td>
+            Doslovna pretraga transkripta s <em>točnom sekundom</em>: gdje je
+            izgovorena riječ, ime ili fraza. Jedinica je segment od nekoliko
+            sekundi, ne poglavlje. Unutar jedne epizode vraća sve pogotke
+            kronološki, inače najrelevantnije grupirane po epizodi. Tolerira
+            greške prepoznavanja govora i hrvatske padeže („Matija" pogađa i
+            „Matijom"). Svaki pogodak je označen kao <code>exact</code> ili
+            <code>typo</code> i ima poveznicu na točnu sekundu. Za pitanja
+            „u kojem trenutku X kaže Y"; za značenje koristi
+            <code>search_podcasts</code>.
+          </td>
+          <td>
+            <div class="param-list">
+              <strong>query</strong> (string, obavezan): riječ, ime ili fraza; u dvostrukim navodnicima = točan slijed riječi<br/>
+              <strong>youtube_id</strong> (string, neobavezan): samo ova epizoda, svi pogoci po vremenu<br/>
+              <strong>channel</strong>, <strong>speaker</strong> (neobavezno): filter na kanal ili na govornika koji izgovara segment<br/>
+              <strong>word_forms</strong> (bool, zadano <code>true</code>): zadnju riječ traži i u drugim padežima<br/>
+              <strong>context</strong> (bool, zadano <code>true</code>): dodaj prethodni i sljedeći segment<br/>
+              <strong>limit</strong> (broj, neobavezno): 1–200, zadano 100 unutar epizode, inače 20
+            </div>
+          </td>
+        </tr>
+        <tr>
           <td><code>server_info</code></td>
           <td>
             Vraća metapodatke o MCP servisu i stanju korpusa: verziju, build info,

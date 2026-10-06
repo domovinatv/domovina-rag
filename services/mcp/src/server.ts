@@ -10,6 +10,7 @@ import type { Pool } from "pg";
 
 import type { Config } from "./config.js";
 import type { EmbedderClient } from "./embedder.js";
+import type { MeiliClient } from "./meili.js";
 import {
   searchPodcasts,
   SearchPodcastsInput,
@@ -48,6 +49,11 @@ import {
   getPersonJsonSchema,
   PersonNotFoundError,
 } from "./tools/get-person.js";
+import {
+  findInTranscript,
+  FindInTranscriptInput,
+  findInTranscriptJsonSchema,
+} from "./tools/find-in-transcript.js";
 
 
 export interface ServerDeps {
@@ -58,6 +64,7 @@ export interface ServerDeps {
   // koji trebaju PG (get_person) grade se samo kad je prisutan; u stdio dev-u
   // (bez PG-a) vraćaju čistu "nedostupno" grešku.
   pg?: Pool;
+  meili?: MeiliClient;
 }
 
 
@@ -71,6 +78,7 @@ const TOOL_NAMES = [
   "get_episode",
   "count_mentions",
   "get_person",
+  "find_in_transcript",
   "server_info",
 ] as const;
 
@@ -165,6 +173,24 @@ export function createServer(deps: ServerDeps): Server {
           "mention_timeline). Slug je ASCII-fold imena (č→c, š→s, ž→z, đ→d, " +
           "razmak→'-').",
         inputSchema: getPersonJsonSchema,
+      },
+      {
+        name: "find_in_transcript",
+        description:
+          "Doslovna pretraga transkripta s TOČNOM sekundom: gdje je izgovorena " +
+          "riječ, ime ili fraza. Jedinica je SRT segment od nekoliko sekundi, ne " +
+          "poglavlje. S `youtube_id` vraća SVE pogotke u epizodi kronološki; bez " +
+          "njega najrelevantnije segmente grupirane po epizodi (s brojem pogodaka " +
+          "po epizodi). Tolerira ASR tipfelere, a zadnju riječ traži i u drugim " +
+          "padežima (Matija → Matijom). Koristi UMJESTO search_podcasts za: " +
+          "'u kojem trenutku X kaže/spominje Y', 'kad se prvi put spominje Z', " +
+          "točne citate i imena. search_podcasts je za značenje ('što X misli o " +
+          "Y'). `speaker` filtrira tko GOVORI; upit traži što je IZGOVORENO. " +
+          "Svaki pogodak ima `match`: exact = doslovno (uklj. padež), typo = samo " +
+          "preko tolerancije tipfelera (ASR greška ILI druga riječ, npr. Matija → " +
+          "Marija) — typo pogotke provjeri u tekstu prije nego ih navedeš. " +
+          "Svaki pogodak ima deep_link na točnu sekundu.",
+        inputSchema: findInTranscriptJsonSchema,
       },
       {
         name: "server_info",
@@ -299,6 +325,41 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `count_mentions failed: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "find_in_transcript") {
+      if (!deps.meili) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "find_in_transcript nije konfiguriran (nedostaje MEILI_URL ili MEILI_SEGMENTS_SEARCH_KEY).",
+            },
+          ],
+        };
+      }
+      const parsed = FindInTranscriptInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const result = await findInTranscript(parsed.data, { meili: deps.meili, ch: deps.ch });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `find_in_transcript failed: ${msg}` }],
         };
       }
     }

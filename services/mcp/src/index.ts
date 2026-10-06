@@ -34,6 +34,7 @@ import { scheduleOAuthGc } from "./gc.js";
 import { loadConfig } from "./config.js";
 import { createCh, createPg } from "./db.js";
 import { EmbedderClient } from "./embedder.js";
+import { MeiliClient } from "./meili.js";
 import { makeRateLimit } from "./rate-limit.js";
 import { mountPublicApi } from "./public-api.js";
 import { createServer } from "./server.js";
@@ -43,10 +44,13 @@ async function main() {
   const config = loadConfig();
   const ch = createCh(config.clickhouseUrl);
   const embedder = new EmbedderClient(config.embedderUrl);
+  const meili = config.meiliUrl && config.meiliSegmentsKey
+    ? new MeiliClient(config.meiliUrl, config.meiliSegmentsKey)
+    : undefined;
 
   if (config.transport === "stdio") {
     console.error(`[mcp] ${config.serviceName} v${config.serviceVersion} → stdio`);
-    const server = createServer({ config, ch, embedder });
+    const server = createServer({ config, ch, embedder, meili });
     const transport = new StdioServerTransport();
     await server.connect(transport);
     return;
@@ -249,7 +253,7 @@ async function main() {
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
         });
-        const server = createServer({ config, ch, embedder, pg });
+        const server = createServer({ config, ch, embedder, pg, meili });
         transport.onclose = () => {
           if (transport.sessionId) sessions.delete(transport.sessionId);
         };

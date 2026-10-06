@@ -1,6 +1,8 @@
 # Plan: pretraga sirovog transkripta s točnom sekundom (Meili `segments`)
 
-Status: **PLAN** (06.10.2026.) — ništa još nije implementirano.
+Status: **IMPLEMENTIRANO u domovina-rag, čeka producera i deploy** (06.10.2026.).
+Producer (`*.segments.jsonl`, ugovor §14) još nije napravljen; cloud index nije
+napunjen; MCP v0.10.0 nije deployan. Vidi „Stanje" na dnu.
 
 ## Problem
 
@@ -129,3 +131,63 @@ youtube_id="35Oq01CmGWE")` → oba pogotka (117 s, 1396 s), ništa drugo.
 - Web UI na domovina.ai („pronađi u epizodi") — zaseban korak u tom repou.
 - Ono što se vidi a ne čuje (osoba ulazi u kadar bez da je itko prozove) — traži
   analizu slike, ne transkript.
+
+## Stanje (06.10.2026.)
+
+### Odluke
+
+1. **Izvor = A.** Kanonski SRT bira `resolveDiarizedSrt()` u producerovom
+   `prepare_rag_combined.js` (homily → gemini-refine → sortformer → canary), a
+   imena dolaze iz `summary.speakers`. Consumer bi oboje morao duplicirati, pa
+   producer piše `{base}.segments.jsonl`. Ugovor: `../fetch.domovina.tv/docs/data_contract.md`
+   §14 (v1.2).
+2. **Segment, ne prozor od 30 s.** Mjereno na Meili 1.11.3 (ista verzija kao cloud):
+
+   | uzorak | dok | disk `byWord` | disk `byAttribute` | RAM peak |
+   |---|---|---|---|---|
+   | 101 ep | 46 k | 149 MB | 85 MB | 0,54 GiB |
+   | 300 ep | 129 k | 408 MB | 209 MB | 0,66 GiB |
+
+   Rast je linearan, ≈3,1 KB/dok. Katalog (3 387 ep) ima **1,42 M segmenata**,
+   ne 3–4 M kako je plan procijenio, pa je procjena ≈ **4,4 GB**. VPS: 86 GB
+   slobodnog diska, 12 GiB slobodnog RAM-a, Meili danas 1,2 GB / 0,9 GiB. Stane.
+3. **`byWord`.** `byAttribute` bi prepolovio disk, ali fraza u navodnicima tada
+   pogađa i nesusjedne riječi (12 od 19 pogodaka za „za vrijeme rata").
+4. **Pretraživ je samo `text`.** Uz pretraživ `speaker` upit „Matij" je pogodio
+   19 segmenata umjesto 2 (ostali nisu spominjali ime, nego ih je govorio „Matija"). Spomen i govor su
+   različita pitanja, pa je govor filter `speaker`.
+5. **Padeži.** Tolerancija tipfelera ne pokriva „Matija" → „Matijom" (2 izmjene),
+   a Meili prefiksom traži samo zadnju riječ. Alat (`word_forms`, default uključen)
+   zadnjoj riječi skida završne samoglasnike: „Matija" → „Matij".
+6. **`match: exact | typo`.** Tolerancija tipfelera pušta i druge riječi
+   („Matij" → „**Mati** Slobode", „Matija" → „Marija"). Ne gasi se, jer zbog nje
+   biramo Meili (ASR greške), nego se svaki pogodak označi. Na 35Oq01CmGWE su
+   `exact` točno 117 s i 1396 s, a `typo` je 686 s.
+
+### Napravljeno
+
+- `scripts/meili-segments-index.py` + `scripts/sync-meili-segments.sh` (`--cloud`)
+  — delta po SHA-256, stanje u indexu `segments_state`, korpus-filter po CH-u.
+  Testirano lokalno: prvo punjenje, run bez promjena (0), skraćena epizoda
+  (delete + add, broj dok točan).
+- Korak 5b u `scripts/sync-cron.sh`, `docs/data-refresh-flow.md` §4b/§6/§7.
+- MCP `find_in_transcript` (v0.10.0): `services/mcp/src/tools/find-in-transcript.ts`,
+  `src/meili.ts`, env `MEILI_URL` + `MEILI_SEGMENTS_SEARCH_KEY`.
+- e2e: `find-in-transcript-matija-35Oq` (exact = [117, 1396]) i
+  `find-in-transcript-phrase-exact`. Oba prolaze lokalno protiv uzorka.
+
+### Preostalo (redom)
+
+1. **Producer** (fetch.domovina.tv sesija): `segments.jsonl` u
+   `prepare_rag_combined.js` po §14 + backfill cijelog kataloga.
+2. `./scripts/sync-meili-segments.sh --cloud` — prvo punjenje (~1,4 M dok).
+3. `MEILI_INDEX=segments MEILI_SEARCH_UID=$MEILI_SEGMENTS_SEARCH_UID MEILI_KEY_NAME=segments-search ./scripts/meili-provision-keys.sh --cloud`
+4. Coolify env MCP Applicationa: `MEILI_URL=http://domovina-meili:7700`,
+   `MEILI_SEGMENTS_SEARCH_KEY=…` → `services/mcp/deploy.sh` → `/health` 0.10.0.
+5. `MCP_URL=https://mcp.domovina.link npm run test:e2e`.
+
+### Usput uočeno
+
+Na 1396 s SRT govornika označava kao `SPEAKER_00` (Ante Čaljkušić), iako taj dio
+govori Petar Buljan. To je greška dijarizacije kod producera, ne ovog indexa.
+
