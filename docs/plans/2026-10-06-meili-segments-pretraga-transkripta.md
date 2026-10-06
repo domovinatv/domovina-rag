@@ -181,7 +181,7 @@ youtube_id="35Oq01CmGWE")` → oba pogotka (117 s, 1396 s), ništa drugo.
 1. **Producer** (fetch.domovina.tv sesija): `segments.jsonl` u
    `prepare_rag_combined.js` po §14 + backfill cijelog kataloga.
 2. `./scripts/sync-meili-segments.sh --cloud` — prvo punjenje (~1,4 M dok).
-3. `MEILI_INDEX=segments MEILI_SEARCH_UID=$MEILI_SEGMENTS_SEARCH_UID MEILI_KEY_NAME=segments-search ./scripts/meili-provision-keys.sh --cloud`
+3. `./scripts/meili-provision-keys.sh --segments --cloud`
 4. Coolify env MCP Applicationa: `MEILI_URL=http://domovina-meili:7700`,
    `MEILI_SEGMENTS_SEARCH_KEY=…` → `services/mcp/deploy.sh` → `/health` 0.10.0.
 5. `MCP_URL=https://mcp.domovina.link npm run test:e2e`.

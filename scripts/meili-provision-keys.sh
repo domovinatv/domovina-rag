@@ -13,9 +13,10 @@
 #   3. ispiše MEILI_SEARCH_KEY string (za frontend dart-define / domovina-api)
 #
 # Ključ za index `segments` (MCP find_in_transcript; kasnije web „pronađi u epizodi"):
-#   MEILI_INDEX=segments MEILI_SEARCH_UID=$MEILI_SEGMENTS_SEARCH_UID \
-#     MEILI_KEY_NAME=segments-search MEILI_KEY_DESCRIPTION="segments (read-only)" \
-#     ./scripts/meili-provision-keys.sh [--cloud]
+#   ./scripts/meili-provision-keys.sh --segments [--cloud]
+# Zastavica, a ne MEILI_INDEX/MEILI_SEARCH_UID iz okoline: skripta niže učitava
+# .env, koji bi pregazio proslijeđeni MEILI_SEARCH_UID i tiho vratio ključ za
+# `episodes`.
 #
 # Usage:
 #   MEILI_URL=http://localhost:7700 MEILI_MASTER_KEY=... MEILI_SEARCH_UID=... \
@@ -36,13 +37,28 @@ SSH_HOST="${CLOUD_SSH_HOST:-ubuntu@89.168.100.120}"
 SSH_OPTS="-i $SSH_KEY -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new"
 INDEX="${MEILI_INDEX:-episodes}"
 
+SEGMENTS=0; CLOUD=0
+for arg in "$@"; do
+  case "$arg" in
+    --segments) SEGMENTS=1 ;;
+    --cloud) CLOUD=1 ;;
+    *) echo "Nepoznat argument: $arg" >&2; exit 2 ;;
+  esac
+done
+if [ "$SEGMENTS" = 1 ]; then
+  INDEX=segments
+  MEILI_SEARCH_UID="${MEILI_SEGMENTS_SEARCH_UID:?MEILI_SEGMENTS_SEARCH_UID nije set u .env}"
+  MEILI_KEY_NAME=segments-search
+  MEILI_KEY_DESCRIPTION="segments: find_in_transcript (read-only)"
+fi
+
 : "${MEILI_SEARCH_UID:?MEILI_SEARCH_UID nije set (fiksni uuid za deterministički search-key). Generiraj: uuidgen | tr A-Z a-z}"
 
 TUNNEL_PID=""
 cleanup() { [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
-if [ "${1:-}" = "--cloud" ]; then
+if [ "$CLOUD" = 1 ]; then
   CLOUD_MEILI=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=meili --format '{{.Names}}' | head -1")
   [ -n "$CLOUD_MEILI" ] || { echo "ERROR: cloud Meili container nije pronađen (redeployaj compose prvo)." >&2; exit 1; }
   MASTER=$(ssh $SSH_OPTS "$SSH_HOST" "docker exec $CLOUD_MEILI printenv MEILI_MASTER_KEY")

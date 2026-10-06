@@ -97,8 +97,7 @@ EMBEDDER_URL=http://domovina-embedder:8000
 
 # find_in_transcript (Meili index `segments`). Bez oba alat vraća grešku, server
 # radi normalno. Ključ je search-only (actions:[search], indexes:[segments]):
-#   MEILI_INDEX=segments MEILI_SEARCH_UID=$MEILI_SEGMENTS_SEARCH_UID \
-#     MEILI_KEY_NAME=segments-search ./scripts/meili-provision-keys.sh --cloud
+#   ./scripts/meili-provision-keys.sh --segments --cloud
 MEILI_URL=http://domovina-meili:7700
 MEILI_SEGMENTS_SEARCH_KEY=<ispis provision skripte>
 
