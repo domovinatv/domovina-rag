@@ -1,8 +1,7 @@
 # Plan: pretraga sirovog transkripta s točnom sekundom (Meili `segments`)
 
-Status: **IMPLEMENTIRANO u domovina-rag, čeka producera i deploy** (06.10.2026.).
-Producer (`*.segments.jsonl`, ugovor §14) još nije napravljen; cloud index nije
-napunjen; MCP v0.10.0 nije deployan. Vidi „Stanje" na dnu.
+Status: **LIVE** (06.10.2026.) — producer `8f0f3de4`, consumer `fa3105b` + `2e0fae6`,
+MCP v0.10.0 na produkciji, cloud index napunjen, e2e protiv prod-a 40/40.
 
 ## Problem
 
@@ -176,15 +175,21 @@ youtube_id="35Oq01CmGWE")` → oba pogotka (117 s, 1396 s), ništa drugo.
 - e2e: `find-in-transcript-matija-35Oq` (exact = [117, 1396]) i
   `find-in-transcript-phrase-exact`. Oba prolaze lokalno protiv uzorka.
 
-### Preostalo (redom)
+### Deploy (06.10.2026.)
 
-1. **Producer** (fetch.domovina.tv sesija): `segments.jsonl` u
-   `prepare_rag_combined.js` po §14 + backfill cijelog kataloga.
-2. `./scripts/sync-meili-segments.sh --cloud` — prvo punjenje (~1,4 M dok).
-3. `./scripts/meili-provision-keys.sh --segments --cloud`
-4. Coolify env MCP Applicationa: `MEILI_URL=http://domovina-meili:7700`,
-   `MEILI_SEGMENTS_SEARCH_KEY=…` → `services/mcp/deploy.sh` → `/health` 0.10.0.
-5. `MCP_URL=https://mcp.domovina.link npm run test:e2e`.
+- Producer backfill: 3 383 epizode, 1 412 998 redova (`8f0f3de4`).
+- Cloud prvo punjenje: **1 407 743 dokumenata, 3 366 epizoda, 17 min** (25 k/zahtjev,
+  ~7 s → ~25 s po batchu kako index raste). 2 epizode korpusa nemaju datoteku.
+- VPS nakon punjenja: Meili `data.ms` 1,2 → **6,4 GB** (procjena je bila +4,4 GB;
+  LMDB ima i overhead i ne vraća prostor), disk 60 → 65 GB od 145 GB (80 GB slobodno).
+  Meili RAM: 1,18 GiB anon + 4,4 GiB page cache (oslobodiv); `available` na hostu
+  ostao 12 GiB.
+- Ključ: `./scripts/meili-provision-keys.sh --segments --cloud` (uid
+  `MEILI_SEGMENTS_SEARCH_UID`). Coolify env MCP-a: `MEILI_URL`, `MEILI_SEGMENTS_SEARCH_KEY`.
+- Latencija na prod-u: ~120–130 ms po pozivu (s kontekstom i naslovima iz CH-a).
+- e2e protiv prod-a sa statičkim ključem i dalje vraća 500 (stari problem). Radi s
+  OAuth tokenom dobivenim preko DCR-a (server auto-odobrava); vidi memory
+  `lessons-mcp-prod-static-apikey-500`.
 
 ### Usput uočeno
 
