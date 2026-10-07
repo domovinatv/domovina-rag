@@ -191,8 +191,32 @@ youtube_id="35Oq01CmGWE")` → oba pogotka (117 s, 1396 s), ništa drugo.
   OAuth tokenom dobivenim preko DCR-a (server auto-odobrava); vidi memory
   `lessons-mcp-prod-static-apikey-500`.
 
+### Test kroz Domovina konektor (claude.ai OAuth)
+
+Tijek kakav radi LLM klijent: `list_episodes(speaker="Petar Buljan")` → `youtube_id`,
+pa `find_in_transcript("Matija", youtube_id=…)` → 1:57 exact (kontekst: od 2:01 govori
+Matija), 23:16 exact, 2:26 typo („Marija"). `search_podcasts` za isto pitanje daje
+poglavlje od 1:20 (`/t/80`) i ne nalazi 23:16.
+
+Bez `youtube_id` (filter kanala) vraća 407 pogodaka, ali samo 20 najrelevantnijih
+segmenata, pa se ciljna epizoda vidi s 1 od svoja 3 pogotka (`hits_in_episode: 3`).
+Tako je zamišljeno: LLM odatle dozna epizodu i traži unutar nje.
+
+### Prva noć (07.10.2026.)
+
+Cron korak 5b: 3 nove epizode, 681 dokument, 13 s; index 1 408 424 dok.
+
+### Web
+
+Handoff za „Pronađi u epizodi" na domovina.ai napisan 06.10.2026.
+(`~/.claude/handoffs/domovina.ai/2026-10-06-1717-pronadi-u-epizodi.md`). Javni
+`search.domovina.ai/indexes/segments` radi iz preglednika (CORS `*`), a ključ je
+ograničen na `segments` (na `episodes` vraća 403).
+
 ### Usput uočeno
 
 Na 1396 s SRT govornika označava kao `SPEAKER_00` (Ante Čaljkušić), iako taj dio
 govori Petar Buljan. To je greška dijarizacije kod producera, ne ovog indexa.
+Isto u `tE52XuJ_bd4`: pitanja voditeljice pripisana su gostu (Matija Gorjanec).
+Filter `speaker` je zato onoliko točan koliko je točna dijarizacija.
 
