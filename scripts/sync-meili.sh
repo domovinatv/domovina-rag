@@ -3,8 +3,8 @@
 # ClickHouse-a. Radi lokalno ILI prema cloud Meiliju (preko SSH tunela).
 #
 # Meili index je DERIVAT ClickHouse-a (article_summary chunkovi + PG title-ovi),
-# pa je re-index jeftin i idempotentan (~2562 dok = sekunde). Nema delta logike —
-# puni re-index svaki put je jednostavniji i dovoljno brz. Pokreće
+# pa je re-index jeftin i idempotentan (~69k sekcija ≈ pola minute). Nema delta
+# logike — puni re-index u `episodes__build` pa atomska zamjena. Pokreće
 # scripts/meili-poc-index.py s odgovarajućim env varijablama.
 #
 # launchd daje minimalan PATH (/usr/bin:/bin:/usr/sbin:/sbin) — docker, node/npx,

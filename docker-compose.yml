@@ -94,8 +94,8 @@ services:
     # Coolify ne podržava `--profile` flag iz UI-a, pa profile-i NE valjaju u cloud-u.
 
   meilisearch:
-    # Frontend keyword tražilica (typo-tolerant, fasete) nad po-epizoda
-    # dokumentima. KOMPLEMENTARNO semantičkoj CH pretrazi (drugi use-case:
+    # Frontend keyword tražilica (typo-tolerant, fasete) nad dokumentima po
+    # sekciji sažetka (`distinct` po epizodi). KOMPLEMENTARNO semantičkoj CH pretrazi (drugi use-case:
     # čovjek tipka točnu riječ/ime u web UI). Index `episodes` se puni preko
     # scripts/sync-meili.sh iz CH article_summary chunkova + PG title-ova.
     image: getmeili/meilisearch:v1.11
