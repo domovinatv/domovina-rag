@@ -64,3 +64,5 @@ snapshots/
 
 # AI tim runtime stanje (pane mapa, status linija, verdikti reviewera)
 .tim/
+.reingest-queue
+.reingest-queue.wip

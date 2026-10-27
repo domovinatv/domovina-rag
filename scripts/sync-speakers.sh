@@ -74,7 +74,7 @@ if [ "$TARGET" = "local" ]; then
   log "Cilj: LOKALNI PG ($LOCAL_PG_CONTAINER), izvor CH ($LOCAL_CH_CONTAINER)"
 else
   [ -f "$SSH_KEY" ] || { echo "ERROR: SSH ključ ne postoji: $SSH_KEY" >&2; exit 1; }
-  CLOUD_CH=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=clickhouse --format '{{.Names}}' | head -1")
+  CLOUD_CH=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter label=coolify.projectName=domovina-rag --filter name=clickhouse --format '{{.Names}}' | head -1")
   [ -n "$CLOUD_CH" ] || { echo "ERROR: cloud CH container nije pronađen." >&2; exit 1; }
   # RAG PG dijeli Coolify stack-UUID s CH containerom (clickhouse-<UUID>-<ts>).
   # Na hostu ima više postgres containera (supabase, coolify, drugi projekti) —

@@ -59,7 +59,7 @@ cleanup() { [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
 if [ "$CLOUD" = 1 ]; then
-  CLOUD_MEILI=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=meili --format '{{.Names}}' | head -1")
+  CLOUD_MEILI=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter label=coolify.projectName=domovina-rag --filter name=meili --format '{{.Names}}' | head -1")
   [ -n "$CLOUD_MEILI" ] || { echo "ERROR: cloud Meili container nije pronađen (redeployaj compose prvo)." >&2; exit 1; }
   MASTER=$(ssh $SSH_OPTS "$SSH_HOST" "docker exec $CLOUD_MEILI printenv MEILI_MASTER_KEY")
   CIP=$(ssh $SSH_OPTS "$SSH_HOST" "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' $CLOUD_MEILI" | awk '{print $1}')

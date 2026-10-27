@@ -68,7 +68,7 @@ else
   # ─── Cloud: SSH tunel na cloud Meili (interni port 7700 nije javan) ──────────
   [ -f "$SSH_KEY" ] || { echo "ERROR: SSH ključ ne postoji: $SSH_KEY" >&2; exit 1; }
   log "Discovering cloud Meili container + master key preko SSH-a..."
-  CLOUD_MEILI_CONTAINER=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=meili --format '{{.Names}}' | head -1")
+  CLOUD_MEILI_CONTAINER=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter label=coolify.projectName=domovina-rag --filter name=meili --format '{{.Names}}' | head -1")
   [ -n "$CLOUD_MEILI_CONTAINER" ] || { echo "ERROR: cloud Meili container nije pronađen (je li deployan?)." >&2; exit 1; }
   CLOUD_MEILI_KEY=$(ssh $SSH_OPTS "$SSH_HOST" "docker exec $CLOUD_MEILI_CONTAINER printenv MEILI_MASTER_KEY")
   [ -n "$CLOUD_MEILI_KEY" ] || { echo "ERROR: ne mogu pročitati cloud MEILI_MASTER_KEY." >&2; exit 1; }

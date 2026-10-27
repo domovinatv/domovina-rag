@@ -98,13 +98,39 @@ ch_local() { docker exec "$LOCAL_CH_CONTAINER" clickhouse-client -d "$LOCAL_CH_D
 
 # Cloud container + lozinka se discoveraju (ne hardkodiraju — mijenjaju se na redeploy)
 log "Discovering cloud CH container..."
-CLOUD_CH_CONTAINER=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=clickhouse --format '{{.Names}}' | head -1")
+CLOUD_CH_CONTAINER=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter label=coolify.projectName=domovina-rag --filter name=clickhouse --format '{{.Names}}' | head -1")
 [ -n "$CLOUD_CH_CONTAINER" ] || { echo "ERROR: cloud CH container nije pronađen." >&2; exit 1; }
 CLOUD_CH_PASS=$(ssh $SSH_OPTS "$SSH_HOST" "docker exec $CLOUD_CH_CONTAINER printenv CLICKHOUSE_PASSWORD")
 log "Cloud CH: $CLOUD_CH_CONTAINER"
 
 ch_cloud() { ssh $SSH_OPTS "$SSH_HOST" \
   "docker exec $CLOUD_CH_CONTAINER clickhouse-client -d $LOCAL_CH_DB --user $LOCAL_CH_USER --password $CLOUD_CH_PASS --query \"$1\""; }
+
+# ─── 0.5 Ponovni unos promijenjenih epizoda (.reingest-queue) ─────────────────
+# ETL preskače epizodu sa `status='indexed'`, a delta gleda samo broj chunkova po
+# epizodi — epizoda kojoj je producer ispravio TEKST (isti broj chunkova) nikad ne
+# bi stigla ni lokalno ni na cloud. Producer (fetch.domovina.tv, npr.
+# tools/fix_refine_drift.js) upiše youtube_id u `.reingest-queue`; ovdje se te
+# epizode obrišu lokalno i na cloudu i PG status padne na 'stale', pa ih ETL unese
+# kao nove, a delta ih pošalje kao nove. Red se prazni tek nakon uspješnog synca
+# (`.wip`), pa pad na pola puta znači samo ponovni pokušaj iduće noći.
+REINGEST_FILE=".reingest-queue"
+REINGEST_WIP=".reingest-queue.wip"
+if [ "$SKIP_ETL" -eq 0 ] && { [ -s "$REINGEST_FILE" ] || [ -s "$REINGEST_WIP" ]; }; then
+  cat "$REINGEST_FILE" "$REINGEST_WIP" 2>/dev/null | grep -E '^[A-Za-z0-9_-]{11}$' | sort -u > "$REINGEST_WIP.tmp" || true
+  mv "$REINGEST_WIP.tmp" "$REINGEST_WIP"
+  : > "$REINGEST_FILE"
+  RE_N=$(grep -c . "$REINGEST_WIP" || true)
+  if [ "$RE_N" -gt 0 ]; then
+    RE_IN=$(awk 'NF{printf "%s'\''%s'\''", (NR>1?",":""), $1}' "$REINGEST_WIP")
+    LOCAL_PG_CONTAINER="${LOCAL_PG_CONTAINER:-$(docker ps --filter name=postgres --format '{{.Names}}' | grep -i domovina | head -1)}"
+    log "Ponovni unos $RE_N epizoda (.reingest-queue): brišem lokalno + cloud, PG status → stale"
+    docker exec -i "$LOCAL_PG_CONTAINER" psql -U "${POSTGRES_USER:-rag_user}" -d "${POSTGRES_DB:-rag}" \
+      -v ON_ERROR_STOP=1 -qc "UPDATE episodes SET status = 'stale' WHERE youtube_id IN ($RE_IN)"
+    ch_local "ALTER TABLE rag_chunks DELETE WHERE youtube_id IN ($RE_IN) SETTINGS mutations_sync = 2"
+    ch_cloud "ALTER TABLE rag_chunks DELETE WHERE youtube_id IN ($RE_IN) SETTINGS mutations_sync = 2"
+  fi
+fi
 
 # ─── 1. ETL ingest (idempotentan, per-disk) ───────────────────────────────────
 if [ "$SKIP_ETL" -eq 0 ]; then
@@ -150,7 +176,15 @@ if [ "$SKIP_ETL" -eq 0 ]; then
     ETL_PROC=$(sed -n 's/.*Done: processed=\([0-9]*\).*/\1/p' "$ETL_OUT" | tail -1)
     ETL_ERRS=$(sed -n 's/.*Done: .*errors=\([0-9]*\).*/\1/p' "$ETL_OUT" | tail -1)
     rm -f "$ETL_OUT"
-    if [ -n "${ETL_ERRS:-}" ] && [ "${ETL_ERRS:-0}" -gt 0 ] && [ "${ETL_PROC:-0}" -eq 0 ]; then
+    # Nema `Done:` retka = ETL se nije ni pokrenuo. 10.–27.10.2026. image je bio
+    # obrisan, build je u 05:00 padao na pullu `python:3.11-slim` (DeadlineExceeded)
+    # i 18 noći nijedna epizoda nije ušla u korpus, a cron je to javljao samo kao
+    # build WARN.
+    if [ -z "${ETL_PROC:-}" ]; then
+      log "ERROR: ETL se nije pokrenuo za $dir (nema 'Done:' retka) — image? build log: $BUILD_LOG"
+      printf 'FAIL-ETL nije pokrenut (%s)\n' "$dir" \
+        >> "$(dirname "$0")/../.ingest-logs/.etl-status"
+    elif [ -n "${ETL_ERRS:-}" ] && [ "${ETL_ERRS:-0}" -gt 0 ] && [ "${ETL_PROC:-0}" -eq 0 ]; then
       log "ERROR: ETL nije unio NIJEDNU epizodu, a $ETL_ERRS ih je palo (processed=0)."
       log "       Najčešći uzrok: embedder nije dohvatljiv IZ KONTEJNERA."
       log "       EMBEDDER_URL=${EMBEDDER_URL:-<nije postavljen → compose default http://embedder:8000>}"
@@ -248,6 +282,7 @@ MISMATCH_N=$(grep -c . "$WORK/mismatch.txt" || true)
 log "Verifikacija: $((DELTA_N - MISMATCH_N)) / $DELTA_N epizoda ima točan broj chunkova na cloudu."
 if [ "$MISMATCH_N" -eq 0 ]; then
   log "✅ Sync uspješan."
+  [ -s "$REINGEST_WIP" ] && { log "Red ponovnog unosa ispražnjen ($(grep -c . "$REINGEST_WIP") epizoda)."; rm -f "$REINGEST_WIP"; }
 else
   log "⚠️  Mismatch na $MISMATCH_N epizoda:"; cat "$WORK/mismatch.txt"
   exit 1

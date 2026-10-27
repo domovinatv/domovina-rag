@@ -65,7 +65,7 @@ if [ "$TARGET" = "local" ]; then
   run_indexer "$LOCAL_MEILI_URL" "$MEILI_MASTER_KEY"
 else
   [ -f "$SSH_KEY" ] || { echo "ERROR: SSH ključ ne postoji: $SSH_KEY" >&2; exit 1; }
-  CLOUD_MEILI=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=meili --format '{{.Names}}' | head -1")
+  CLOUD_MEILI=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter label=coolify.projectName=domovina-rag --filter name=meili --format '{{.Names}}' | head -1")
   [ -n "$CLOUD_MEILI" ] || { echo "ERROR: cloud Meili container nije pronađen." >&2; exit 1; }
   CLOUD_KEY=$(ssh $SSH_OPTS "$SSH_HOST" "docker exec $CLOUD_MEILI printenv MEILI_MASTER_KEY")
   [ -n "$CLOUD_KEY" ] || { echo "ERROR: ne mogu pročitati cloud MEILI_MASTER_KEY." >&2; exit 1; }

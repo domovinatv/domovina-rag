@@ -62,7 +62,7 @@ if [ "$TARGET" = "local" ]; then
   log "Izvor: LOKALNI CH ($LOCAL_CH_CONTAINER)"
 else
   [ -f "$SSH_KEY" ] || { echo "ERROR: SSH ključ ne postoji: $SSH_KEY" >&2; exit 1; }
-  CLOUD_CH=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=clickhouse --format '{{.Names}}' | head -1")
+  CLOUD_CH=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter label=coolify.projectName=domovina-rag --filter name=clickhouse --format '{{.Names}}' | head -1")
   [ -n "$CLOUD_CH" ] || { echo "ERROR: cloud CH container nije pronađen." >&2; exit 1; }
   CLOUD_CH_PW=$(ssh $SSH_OPTS "$SSH_HOST" "docker exec $CLOUD_CH printenv CLICKHOUSE_PASSWORD")
   ch_query() { ssh $SSH_OPTS "$SSH_HOST" \

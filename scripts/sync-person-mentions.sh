@@ -80,7 +80,7 @@ else
   [ -f "$SSH_KEY" ] || { echo "ERROR: SSH ključ ne postoji: $SSH_KEY" >&2; exit 1; }
   # Cloud PG dijeli Coolify stack-UUID s cloud CH containerom (clickhouse-<UUID>-<ts>).
   # Na hostu ima više postgres containera — stack-UUID je jedini pouzdan diskriminator.
-  CLOUD_CH=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=clickhouse --format '{{.Names}}' | head -1")
+  CLOUD_CH=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter label=coolify.projectName=domovina-rag --filter name=clickhouse --format '{{.Names}}' | head -1")
   [ -n "$CLOUD_CH" ] || { echo "ERROR: cloud CH container nije pronađen (za stack-UUID)." >&2; exit 1; }
   STACK_UUID=$(printf '%s' "$CLOUD_CH" | sed -E 's/^clickhouse-([a-z0-9]+)-.*/\1/')
   CLOUD_PG=$(ssh $SSH_OPTS "$SSH_HOST" "docker ps --filter name=postgres-$STACK_UUID --format '{{.Names}}' | head -1")
