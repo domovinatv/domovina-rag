@@ -70,9 +70,22 @@ caffeinate -i -w $$ &
 
 # ─── 2. Embedder up? ──────────────────────────────────────────────────────────
 echo "[cron] Embedder: host :$EMBEDDER_PORT, ETL ga zove na $EMBEDDER_URL"
+# Embedder koji je OVAJ run podigao gasi se na izlazu (svaki put, i na grešci).
+# Ostavljen upaljen narastao je za 2,5 dana na ~17 GB (31.10.2026.): swap 20 GB,
+# disk / na 2 GB slobodno, a pipeline je stao na ogradi diska. Idući run ga ionako
+# podiže sam. Embedder koji je netko pokrenuo ručno ostaje gore.
+STARTED_EMBEDDER=0
+stop_own_embedder() {
+  if [ "$STARTED_EMBEDDER" = 1 ]; then
+    echo "[cron] Gasim embedder koji je ovaj run podigao (:$EMBEDDER_PORT)."
+    pkill -f "uvicorn app.main:app --host 0.0.0.0 --port $EMBEDDER_PORT" 2>/dev/null || true
+  fi
+}
+trap stop_own_embedder EXIT
 if ! curl -s -m 5 "http://localhost:$EMBEDDER_PORT/health" 2>/dev/null | grep -q '"loaded":true'; then
   echo "[cron] Embedder nije gore — pokrećem MPS host embedder..."
   pkill -9 -f "uvicorn app.main" 2>/dev/null || true
+  STARTED_EMBEDDER=1
   sleep 1
   # Limit je MEMORIJSKI BUDŽET, ne broj znakova. Attention drži tenzor
   # (batch, glave, n, n) u float32 → peak ≈ 244 × batch × n²; trošak je kvadratan
