@@ -9,7 +9,7 @@ sve ostalo je stdlib.
 Sadrži ono što je za obje mape doslovno isto:
   quantize()       float koordinate → uint16 [0,65535], očuvan aspect ratio
   find_clusters()  HDBSCAN nad 2D layoutom
-  name_clusters()  LLM imenovanje u batchevima (Vertex → gemini CLI fallback)
+  name_clusters()  LLM imenovanje u batchevima (agy u tmuxu; Vertex/gemini CLI DEPRECATED)
   inherit_labels() nasljeđivanje imena iz prethodnog snapshota po preklapanju
 
 NE sadrži ništa o tome ŠTO je točka — to ostaje u pozivateljima.
@@ -71,6 +71,27 @@ def find_clusters(xy: np.ndarray, mcs: int, log: Log = _default_log) -> np.ndarr
 # ── LLM imenovanje ───────────────────────────────────────────────────────────
 
 
+# Producerov agy omotač (lib/agy_tmux.js): Gemini na pretplati kroz tmux sesiju.
+AGY_JSON_CLI = os.environ.get(
+    "AGY_JSON_CLI",
+    os.path.join(os.path.dirname(__file__), "..", "..", "fetch.domovina.tv", "tools", "agy_json_cli.js"),
+)
+
+
+def _gemini_agy(prompt: str) -> str:
+    """Gemini kroz agy (jedini Gemini put od 29.10.2026., vidi producerov
+    docs/2026-10-28-vertex-iskljucen-agy-jedini-gemini.md). Vraća JSON tekst."""
+    res = subprocess.run(
+        ["node", AGY_JSON_CLI, "--session", "agymap"],
+        input=prompt, capture_output=True, text=True,
+        timeout=int(os.environ.get("AGY_TIMEOUT_SEC", "600")) + 60,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr.strip()[-300:] or f"exit {res.returncode}")
+    return res.stdout
+
+
+# DEPRECATED od 31.10.2026.: Vertex je ugašen (403), gemini CLI ne radi. Kod ostaje — ne brisati.
 def _gemini_vertex(prompt: str) -> str:
     """Vertex AI REST (isti endpoint/auth kao producer summarize_gemini.js)."""
     project = os.environ["VERTEX_PROJECT"]
@@ -131,8 +152,8 @@ def name_clusters(
 
 
 def _name_batch(payloads: Sequence[str], intro: str, log: Log) -> list[str] | None:
-    """Jedan LLM poziv. Backend: Vertex (default) s fallbackom na gemini CLI;
-    GEMINI_BACKEND=cli forsira CLI."""
+    """Jedan LLM poziv kroz agy. Vertex i gemini CLI su DEPRECATED (31.10.2026.)
+    i ostaju samo u kodu."""
     numbered = "\n".join(f"{i}: {p}" for i, p in enumerate(payloads))
     prompt = (
         f"{intro}\n\n"
@@ -140,10 +161,9 @@ def _name_batch(payloads: Sequence[str], intro: str, log: Log) -> list[str] | No
         'Odgovori ISKLJUČIVO JSON objektom: {"labels": ["naziv za 0", "naziv za 1", ...]} '
         f"s točno {len(payloads)} elemenata, istim redom."
     )
-    backends = [("gemini-cli", _gemini_cli)] if os.environ.get("GEMINI_BACKEND", "").lower() == "cli" \
-        else [("vertex", _gemini_vertex), ("gemini-cli", _gemini_cli)]
-    if not os.environ.get("VERTEX_PROJECT"):
-        backends = [b for b in backends if b[0] != "vertex"]
+    # backends = [("gemini-cli", _gemini_cli)] if os.environ.get("GEMINI_BACKEND", "").lower() == "cli" \
+    #     else [("vertex", _gemini_vertex), ("gemini-cli", _gemini_cli)]
+    backends = [("agy", _gemini_agy)]
     for name, fn in backends:
         try:
             text = fn(prompt).strip()
