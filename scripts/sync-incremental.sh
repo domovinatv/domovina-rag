@@ -282,7 +282,12 @@ MISMATCH_N=$(grep -c . "$WORK/mismatch.txt" || true)
 log "Verifikacija: $((DELTA_N - MISMATCH_N)) / $DELTA_N epizoda ima točan broj chunkova na cloudu."
 if [ "$MISMATCH_N" -eq 0 ]; then
   log "✅ Sync uspješan."
-  [ -s "$REINGEST_WIP" ] && { log "Red ponovnog unosa ispražnjen ($(grep -c . "$REINGEST_WIP") epizoda)."; rm -f "$REINGEST_WIP"; }
+  # `if`, ne `[ -s ] && {…}`: kao zadnja naredba skripte prazan red vraćao je rc=1 iako je
+  # sync uspio, pa je sync-cron.sh od 29.10.2026. preskakao Meili, segments, person hub,
+  # mape i stats (svi traže RC=0).
+  if [ -s "$REINGEST_WIP" ]; then
+    log "Red ponovnog unosa ispražnjen ($(grep -c . "$REINGEST_WIP") epizoda)."; rm -f "$REINGEST_WIP"
+  fi
 else
   log "⚠️  Mismatch na $MISMATCH_N epizoda:"; cat "$WORK/mismatch.txt"
   exit 1
