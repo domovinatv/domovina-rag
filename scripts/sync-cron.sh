@@ -84,7 +84,8 @@ stop_own_embedder() {
 trap stop_own_embedder EXIT
 if ! curl -s -m 5 "http://localhost:$EMBEDDER_PORT/health" 2>/dev/null | grep -q '"loaded":true'; then
   echo "[cron] Embedder nije gore — pokrećem MPS host embedder..."
-  pkill -9 -f "uvicorn app.main" 2>/dev/null || true
+  # Samo NAŠ port: goli "uvicorn app.main" pogađa i tuđe projekte na Macu (31.10.2026.).
+  pkill -9 -f "uvicorn app.main:app --host 0.0.0.0 --port $EMBEDDER_PORT" 2>/dev/null || true
   STARTED_EMBEDDER=1
   sleep 1
   # Limit je MEMORIJSKI BUDŽET, ne broj znakova. Attention drži tenzor
