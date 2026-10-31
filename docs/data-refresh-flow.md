@@ -429,6 +429,7 @@ na samom VPS-u (veći zahvat, budući sprint).
 - `scripts/emit_person_mentions_sql.py` — CH `episode_mentions` TSV → PG full-refresh SQL (person_mentions)
 - `scripts/emit_vector_map.py`, `scripts/emit_person_map.py`, `scripts/vectormap_common.py` — snapshoti za stats dashboard
 - `docs/plans/2026-08-01-mapa-osoba.md` — plan i mjerenja iza mape osoba
+- `docs/2026-10-31-sync-rc1-embedder-agy-imenovanje.md` — lažni rc=1 (29.–31.10. preskočeni izvedeni koraci), gašenje embeddera, imenovanje klastera kroz agy
 - `docs/person-hub.md` — person hub feature (govornik profili + "spominje se u")
 - `infra/launchd/tv.domovina.rag.sync.plist` — raspored
 - `meili-keys-and-frontend.md` — Meili ključevi + frontend wiring
