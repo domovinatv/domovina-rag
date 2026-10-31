@@ -44,7 +44,8 @@ if [ -r "$HOME/.nvm/alias/default" ]; then
   unset _dom_nvm_alias _dom_nvm_bin
 fi
 
-_dom_path_prepend "$HOME/google-cloud-sdk/bin"   # gcloud — imenovanje klastera
+_dom_path_prepend "$HOME/google-cloud-sdk/bin"   # gcloud (Vertex DEPRECATED)
+_dom_path_prepend "$HOME/.local/bin"             # agy — imenovanje klastera (od 31.10.2026.)
 _dom_path_prepend /usr/local/bin                 # docker
 _dom_path_prepend /opt/homebrew/bin              # ostali brew alati
 
