@@ -134,6 +134,20 @@ if ! docker ps --filter name=clickhouse --format '{{.Names}}' | grep -qi domovin
   sleep 10
 fi
 
+# CH healthcheck gleda samo /ping, pa je 04.11.2026. bio „healthy” iako se
+# rag.rag_chunks nije mogao učitati (175 oštećenih dijelova od 0 B nakon rušenja
+# Docker VM-a 03.11. usred mergea). ETL je onda pao na svih 30 epizoda.
+# Tablicu čitamo stvarno i prekidamo s jasnom porukom umjesto 30 istih grešaka.
+# Popravak: docs/2026-11-04-clickhouse-broken-parts-handoff.md § Rješenje.
+CH_CHECK=$(docker exec "$(docker ps --filter name=clickhouse --format '{{.Names}}' | grep -i domovina | head -1)" \
+  clickhouse-client -q "SELECT count() FROM rag.rag_chunks" 2>&1)
+if ! [[ "$CH_CHECK" =~ ^[0-9]+$ ]]; then
+  echo "[cron] ERROR: lokalni CH ne može pročitati rag.rag_chunks — prekidam prije ETL-a."
+  echo "$CH_CHECK" | head -3 | cut -c1-300 | sed 's/^/[cron]    │ /'
+  echo "[cron] sync-cron gotov (rc=3, warn=$WARN_N)"
+  exit 3
+fi
+
 # ─── 4. Sync ClickHouse (semantička baza) ─────────────────────────────────────
 echo "[cron] Pokrećem sync-incremental.sh (ClickHouse delta)..."
 rm -f "$REPO/.ingest-logs/.etl-status"

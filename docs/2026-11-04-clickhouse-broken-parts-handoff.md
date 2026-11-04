@@ -80,3 +80,40 @@ potvrđeno, samo je najvjerojatnije.
 - Pravilo iz `fetch.domovina.tv` (04.11.2026.): cilj je da **nove** epizode prođu bez
   greške. Popravak treba vratiti dnevni sync; povijesni re-ingest nije cilj ovog
   zadatka, osim ako se lokalna tablica ionako gradi iznova.
+
+## Rješenje (04.11.2026. navečer)
+
+**Uzrok.** Svih 175 + 177 oštećenih dijelova ima vrijeme 03.11. 04:04:38, usred
+noćnog ETL-a: spojeni dijelovi (merge) su ostali s datotekama od 0 B. To odgovara
+rušenju Docker VM-a prije nego je sadržaj stigao na disk. `Docker.raw` je 41 GB od
+dopuštenih 60 GB, a Mac je imao 9,7 GB slobodno.
+
+**Postupak** (bez gubitka podataka, provjereno prema cloudu):
+
+1. Referenca: na cloud CH-u `uniqExact(chunk_id)` i `uniqExact(youtube_id)` po
+   `toYYYYMM(upload_date)`.
+2. Privremeni `config.d/zz_broken_parts.xml` ubačen u kontejner (`docker cp`):
+   `max_suspicious_broken_parts=1000`, `max_suspicious_broken_parts_bytes=10000000`,
+   pa `docker restart`. CH je oštećene dijelove premjestio u `detached/`
+   (`broken-on-start_*`).
+3. `CHECK TABLE` (s `check_query_single_value_result=0`) je našao još jedan dio
+   pun nula (`202611_82808_82888_16`, `UNKNOWN_CODEC`), pa je odvojen s
+   `ALTER TABLE rag_chunks DETACH PART`.
+4. Sve particije do 202610 su identične cloudu. Lokalni 202611 je imao više od
+   clouda i nijedna epizoda nije imala rupu u `chunk_index`.
+5. Unutarnja tablica `mv_channel_daily` je ispražnjena (`TRUNCATE`) i iznova
+   napunjena iz `rag_chunks FINAL`. `episode_mentions` je ponovno popunjen preko
+   `etl mentions` (idempotentno).
+6. Privremeni config je uklonjen, CH ponovno pokrenut, a postavka je opet 100.
+7. Ručni `sync-cron.sh`: ETL je unio 46 epizoda (0 grešaka), na cloud je otišla
+   delta od 60 epizoda, a sve 4 epizode od 04.11. su na cloudu. Završio je s
+   `rc=0, warn=0`.
+
+**Prevencija.** `sync-cron.sh` korak 3 sad stvarno čita `rag.rag_chunks` i prekida s
+`rc=3` i jasnom porukom, umjesto da ETL padne na svakoj epizodi. Healthcheck u
+compose-u nije diran jer ga koristi i Coolify.
+
+**Otvoreno:** mjesto na Macu (`~/Library/Caches` 15 GB, Docker volumen
+`domovina-rag-infra_hf_cache` 2,1 GB bez kontejnera). Dijelovi u `detached/` se mogu
+obrisati kad prođe nekoliko mirnih noći (`ALTER TABLE … DROP DETACHED PART`
+uz `allow_drop_detached=1`).
