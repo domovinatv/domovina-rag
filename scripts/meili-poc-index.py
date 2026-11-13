@@ -25,6 +25,12 @@ Meili 1.11 facete i `estimatedTotalHits` broji po DOKUMENTU, ne po
 epizodi (prva), i facet upit filtrira `lead = true`. Broj pogodaka upita klijent
 čita iz `totalHits` uz `page`/`hitsPerPage`, koji `distinct` poštuje.
 
+Postavke kanala (lanac „postavke kanala”, S8): sekcije kanala kojima je vlasnik
+isključio `in_app_search` (ili ga zatvaranje gasi: master, povučen kanal) ne ulaze
+u build. Index se svaki put gradi iznova, pa kanal koji vlasnik ponovno uključi
+sljedeći sync sam vrati. Neuspio dohvat postavki koristi zadnju uspješnu snimku
+(`channel_settings.py`), a bez nje indeksira sve kao prije — nikad ne smanjuje index.
+
 Index se gradi u privremenom `<INDEX>__build` i atomski zamijeni sa živim
 (`/swap-indexes`) — upsert u živi index ostavio bi stare po-epizoda dokumente
 (drugi `id`) zauvijek, a brisanje pa punjenje ostavilo bi prazan index usred
@@ -48,6 +54,9 @@ import sys
 import time
 
 import requests
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import channel_settings  # noqa: E402
 
 CH_DB = os.environ.get("CLICKHOUSE_DB", "rag")
 CH_USER = os.environ.get("CLICKHOUSE_USER", "rag_user")
@@ -252,6 +261,14 @@ def main():
     if len(docs) < 1000:
         # Prazan/polupun CH (npr. container tek dignut) ne smije zamijeniti živi index.
         sys.exit(f"[meili] Samo {len(docs)} dokumenata — odustajem od zamjene indexa.")
+
+    # Postavke kanala: tek NAKON provjere punoće korpusa, da prag od 1000 i dalje
+    # mjeri CH, a ne volju vlasnika.
+    settings, source = channel_settings.load_settings()
+    blocked = channel_settings.blocked_channels(settings, ["in_app_search"])
+    docs, dropped = channel_settings.filter_docs(docs, blocked)
+    print(f"[meili] Postavke kanala ({source}): in_app_search isključen za "
+          f"{len(blocked)} kanala {sorted(blocked)} → izostavljeno {dropped} sekcija.")
 
     sess = requests.Session()
     sess.headers.update({"Authorization": f"Bearer {MEILI_KEY}"})

@@ -17,6 +17,11 @@ epizodi:
     Index je time derivat korpusa: što MCP ne vidi, ne vidi ni `segments`.
   - epizoda koje više nema u CH-u se briše. Epizoda kojoj samo fali datoteka
     (npr. disk nije montiran) se NE briše.
+  - postavke kanala (lanac „postavke kanala”, S8): epizode kanala s isključenim
+    `in_app_search` ili `transcript_subtitles` se ne indeksiraju, a već
+    indeksirane se brišu zajedno sa stanjem — pa kad vlasnik ključ uključi,
+    sljedeći sync ih vidi kao nove i vrati. Neuspio dohvat postavki koristi
+    zadnju uspješnu snimku (`channel_settings.py`); bez nje se ne filtrira ništa.
 
 Env:
   MEILI_URL, MEILI_KEY          cilj (master key)
@@ -24,6 +29,8 @@ Env:
   CH_CONTAINER, CLICKHOUSE_*    lokalni CH (docker exec)
   MEILI_SEGMENTS_INDEX          default `segments`
   MAX_DELETE                    zaštita od masovnog brisanja (default 50)
+  MAX_SETTINGS_HIDE_SHARE       postavke smiju sakriti najviše ovaj udio
+                                indeksiranih epizoda u jednom runu (default 0.5)
 """
 import glob
 import hashlib
@@ -35,6 +42,9 @@ import time
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import channel_settings  # noqa: E402
+
 MEILI_URL = os.environ.get("MEILI_URL", "http://localhost:7700").rstrip("/")
 MEILI_KEY = os.environ["MEILI_KEY"]
 INDEX = os.environ.get("MEILI_SEGMENTS_INDEX", "segments")
@@ -45,6 +55,10 @@ CH_DB = os.environ.get("CLICKHOUSE_DB", "rag")
 CH_USER = os.environ.get("CLICKHOUSE_USER", "rag_user")
 CH_PASS = os.environ.get("CLICKHOUSE_PASSWORD", "")
 MAX_DELETE = int(os.environ.get("MAX_DELETE", "50"))
+MAX_SETTINGS_HIDE_SHARE = float(os.environ.get("MAX_SETTINGS_HIDE_SHARE", "0.5"))
+# Ključevi koji skrivaju segmente kanala: pretraga u aplikaciji („Pronađi u
+# epizodi”, paleta) i sam transkript (matrica §4 i §11).
+SEGMENTS_KEYS = ("in_app_search", "transcript_subtitles")
 # Dokumenti po zahtjevu. Svaki zahtjev se čeka do kraja prije sljedećeg: Meili
 # inače spoji sve redom poslane add-taskove u jedan batch, a na prvom punjenju
 # (1,4 M dokumenata) to bi na dijeljenom VPS-u podiglo RAM indeksiranja bez gornje
@@ -107,16 +121,23 @@ def ensure_index(uid: str) -> None:
         log(f"kreiran index '{uid}'")
 
 
-def ch_youtube_ids() -> set[str]:
+def ch_youtube_ids() -> dict[str, str]:
+    """youtube_id → kanal (slug iz `rag_chunks.channel`)."""
     out = subprocess.run(
         ["docker", "exec", CH_CONTAINER, "clickhouse-client", "-d", CH_DB,
          "--user", CH_USER, "--password", CH_PASS,
-         "--query", "SELECT DISTINCT youtube_id FROM rag_chunks WHERE length(youtube_id) = 11"],
+         "--query", "SELECT youtube_id, any(channel) FROM rag_chunks "
+                    "WHERE length(youtube_id) = 11 GROUP BY youtube_id FORMAT TSV"],
         capture_output=True, text=True,
     )
     if out.returncode != 0:
         sys.exit(f"CH upit pao: {out.stderr}")
-    ids = {ln.strip() for ln in out.stdout.splitlines() if ln.strip()}
+    ids: dict[str, str] = {}
+    for ln in out.stdout.splitlines():
+        if not ln.strip():
+            continue
+        yt, _, channel = ln.partition("\t")
+        ids[yt.strip()] = channel.strip()
     if not ids:
         sys.exit("CH je vratio 0 epizoda — prekidam (inače bih obrisao cijeli index).")
     return ids
@@ -157,6 +178,33 @@ def delete_episodes(ids: list[str]) -> None:
         wait_task(meili("POST", f"/indexes/{INDEX}/documents/delete", {"filter": flt})["taskUid"])
 
 
+def plan(corpus: dict[str, str], files: dict[str, tuple[str, str]], state: dict[str, str],
+         blocked: set[str], max_hide_share: float = MAX_SETTINGS_HIDE_SHARE) -> dict:
+    """
+    Čista odluka što indeksirati, a što brisati (bez Meilija, testabilno).
+
+    `hidden` = epizode u korpusu čiji je kanal isključen postavkama; one nisu
+    `eligible`, a `hide` su one od njih koje su već u indeksu. Ako bi postavke u
+    jednom runu sakrile više od `max_hide_share` indeksiranih epizoda, `hide` je
+    prazan i `hide_blocked` nosi razlog — pokvaren odgovor kataloga ne smije
+    isprazniti indeks. Prazan `blocked` daje isti plan kao prije postavki.
+    """
+    hidden = {yt for yt, ch in corpus.items() if channel_settings.is_blocked(ch, blocked)}
+    eligible = {yt: v for yt, v in files.items() if yt in corpus and yt not in hidden}
+    changed = sorted(yt for yt, (_, h) in eligible.items() if state.get(yt) != h)
+    gone = sorted(yt for yt in state if yt not in corpus)
+    hide = sorted(yt for yt in state if yt in hidden)
+    hide_blocked = None
+    if state and len(hide) / len(state) > max_hide_share:
+        hide_blocked = (f"postavke bi sakrile {len(hide)}/{len(state)} indeksiranih epizoda "
+                        f"(> {max_hide_share:.0%}) — preskačem skrivanje")
+        hide = []
+    return {
+        "eligible": eligible, "changed": changed, "gone": gone, "hidden": hidden,
+        "hide": hide, "hide_blocked": hide_blocked,
+    }
+
+
 def main() -> None:
     if not SOURCE_DIRS:
         sys.exit("SEGMENTS_SOURCE_DIRS nije postavljen.")
@@ -168,14 +216,26 @@ def main() -> None:
     corpus = ch_youtube_ids()
     files = discover_files()
     state = load_state()
+    settings, source = channel_settings.load_settings()
+    blocked = channel_settings.blocked_channels(settings, SEGMENTS_KEYS)
 
-    eligible = {yt: v for yt, v in files.items() if yt in corpus}
-    changed = sorted(yt for yt, (_, h) in eligible.items() if state.get(yt) != h)
-    gone = sorted(yt for yt in state if yt not in corpus)
-    missing = len(corpus) - len(eligible)
+    p = plan(corpus, files, state, blocked)
+    eligible, changed, gone, hide = p["eligible"], p["changed"], p["gone"], p["hide"]
+    missing = len(corpus) - len(p["hidden"]) - len(eligible)
     log(f"korpus {len(corpus)} ep · datoteka {len(files)} (u korpusu {len(eligible)}) · "
         f"stanje {len(state)} · za indeksirati {len(changed)} · za obrisati {len(gone)} · "
         f"bez segments.jsonl {missing}")
+    log(f"postavke kanala ({source}): isključeno {len(blocked)} kanala {sorted(blocked)} · "
+        f"skrivenih epizoda u korpusu {len(p['hidden'])} · za ukloniti iz indexa {len(hide)}")
+    if p["hide_blocked"]:
+        log(f"WARN: {p['hide_blocked']}")
+
+    if hide:
+        # Ne ide kroz MAX_DELETE: to je zaštita od pokvarenog korpusa, a ovo je
+        # vlasnikova odluka (zaštitu od pokvarenih postavki daje plan()).
+        delete_episodes(hide)
+        wait_task(meili("POST", f"/indexes/{STATE_INDEX}/documents/delete-batch", hide)["taskUid"])
+        log(f"sakriveno {len(hide)} epizoda (postavke kanala)")
 
     if gone:
         if len(gone) > MAX_DELETE:
