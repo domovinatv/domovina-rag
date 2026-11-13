@@ -17,6 +17,7 @@ import type { ClickHouseClient } from "@clickhouse/client";
 import type { Pool } from "pg";
 import { z } from "zod";
 
+import { HiddenChannels, hiddenChannelsSql } from "../channel-settings.js";
 import {
   classifyTier,
   judgeVirtualChannel,
@@ -349,14 +350,19 @@ function parseEpisodeTitle(raw: string): string | null {
 
 export async function getPerson(
   args: GetPersonArgs,
-  deps: { ch: ClickHouseClient; pg: Pool },
+  deps: { ch: ClickHouseClient; pg: Pool; hidden?: HiddenChannels },
 ): Promise<PersonHub> {
   const slug = args.slug.trim().toLowerCase();
+  // Postavke kanala: epizode kanala s isključenim `persons_mentions` (a u MCP-u i
+  // `ai_assistants`) ne ulaze ni u `episodes[]`, ni u `cameo_episodes[]`, ni u
+  // `mentions[]` — pa ni u pravilo virtualnog kanala, koje se računa iz ostatka.
+  const hidden = deps.hidden ?? HiddenChannels.EMPTY;
+  const hiddenSql = hiddenChannelsSql(hidden, "rag_chunks.channel");
 
   // 1. Slug → osoba (PG). Slug se lowercase-a jer je pohranjen lowercase.
   //    Spomene dohvaćamo UVIJEK i paralelno — oni su drugi izvor identiteta,
   //    pa i osoba bez speakers reda može imati profil.
-  const [{ rows: speakerRows }, mentionRows, curation] = await Promise.all([
+  const [{ rows: speakerRows }, allMentionRows, curation] = await Promise.all([
     deps.pg.query<SpeakerRow>(
       `SELECT canonical_name, slug, avatar_url, aliases
        FROM speakers
@@ -370,10 +376,14 @@ export async function getPerson(
   ]);
 
   const person = speakerRows[0] ?? null;
-  if (person === null && mentionRows.length === 0) {
+  if (person === null && allMentionRows.length === 0) {
     // Ni govori ni spominje se — tek tada je osoba stvarno nepoznata.
     throw new PersonNotFoundError(args.slug);
   }
+  // Filtar postavki ide NAKON provjere postojanja: osoba poznata samo iz
+  // isključenog kanala dobiva prazan profil (200), ne 404 — kao opt-out, da
+  // podijeljeni link ne pukne. Ime se ne uzima iz spomena isključenog kanala.
+  const mentionRows = allMentionRows.filter((r) => !hidden.has(r.channel));
 
   // aliases dolazi kao jsonb → već je JS array of string.
   const aliases = Array.isArray(person?.aliases) ? person!.aliases : [];
@@ -442,7 +452,7 @@ export async function getPerson(
       )) AS speaking_seconds,
       any(metadata) AS sample_metadata
     FROM rag_chunks
-    WHERE youtube_id IN (
+    WHERE ${hiddenSql ? `${hiddenSql.clause} AND ` : ""}youtube_id IN (
       SELECT youtube_id FROM rag_chunks
       WHERE arrayExists(
         x -> x IN {aliases:Array(String)},
@@ -455,10 +465,11 @@ export async function getPerson(
   `;
   const resultSet = await deps.ch.query({
     query: sql,
-    query_params: { aliases },
+    query_params: { aliases, ...(hiddenSql?.params ?? {}) },
     format: "JSONEachRow",
   });
-  const rows = (await resultSet.json()) as EpisodeRow[];
+  // Drugi red obrane (i jedini kad je `ch` testni dvojnik): isti filtar u JS-u.
+  const rows = ((await resultSet.json()) as EpisodeRow[]).filter((r) => !hidden.has(r.channel));
 
   const [tracked, ambiguous] = await Promise.all([
     loadTrackedChannels(),

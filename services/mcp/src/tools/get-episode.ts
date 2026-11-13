@@ -17,6 +17,8 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
 
+import { HiddenChannels, hiddenChannelsSql } from "../channel-settings.js";
+
 
 // Char-based limits; ~3-4 char/token za HR tekst, pa 80K ≈ 20-25K tokena.
 // Tighter od brief-a (200K/500K) jer claude.ai default tool budget je ~25k tokena
@@ -228,8 +230,12 @@ export async function getEpisode(
     ch: ClickHouseClient;
     softCharLimit?: number;
     hardCharLimit?: number;
+    hidden?: HiddenChannels;
   },
 ): Promise<GetEpisodeResult> {
+  // Postavke kanala: epizoda isključenog kanala izgleda kao da je nema u korpusu
+  // (isti EPISODE_NOT_FOUND) — alat ne otkriva što je vlasnik isključio.
+  const hiddenSql = hiddenChannelsSql(deps.hidden ?? HiddenChannels.EMPTY);
   const softLimit = deps.softCharLimit ?? DEFAULT_SOFT_CHAR_LIMIT;
   const hardLimit = deps.hardCharLimit ?? DEFAULT_HARD_CHAR_LIMIT;
 
@@ -251,10 +257,10 @@ export async function getEpisode(
           text_summary,
           metadata
         FROM rag_chunks
-        WHERE youtube_id = {yt:String}
+        WHERE youtube_id = {yt:String}${hiddenSql ? ` AND ${hiddenSql.clause}` : ""}
         ORDER BY chunk_index ASC
       `,
-      query_params: { yt: args.youtube_id },
+      query_params: { yt: args.youtube_id, ...(hiddenSql?.params ?? {}) },
       format: "JSONEachRow",
     });
     rows = (await resultSet.json()) as ChunkRow[];

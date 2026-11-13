@@ -12,6 +12,7 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
 
+import { HiddenChannels, hiddenChannelsSql } from "../channel-settings.js";
 import type { EmbedderClient } from "../embedder.js";
 
 
@@ -188,13 +189,28 @@ interface ChunkRow {
 }
 
 
-/** Zajednički WHERE za oba načina pretrage (tekst i mapa). */
-function buildFilters(args: SearchPodcastsArgs | SearchMapArgs): {
+/**
+ * Zajednički WHERE za oba načina pretrage (tekst i mapa).
+ *
+ * `hidden` = kanali čiji je vlasnik isključio svrhu ovog upita (postavke kanala).
+ * Ide u WHERE, ne nakon LIMIT-a — inače bi upit s `limit=10` vratio manje od 10
+ * pogodaka čim bi dio najboljih bio iz isključenog kanala. Prazan skup ne dodaje
+ * ništa, pa je upit bajt-identičan onome prije postavki.
+ */
+export function buildFilters(
+  args: SearchPodcastsArgs | SearchMapArgs,
+  hidden: HiddenChannels = HiddenChannels.EMPTY,
+): {
   whereParts: string[];
   params: Record<string, unknown>;
 } {
   const params: Record<string, unknown> = {};
   const whereParts: string[] = [];
+  const hiddenSql = hiddenChannelsSql(hidden);
+  if (hiddenSql) {
+    whereParts.push(hiddenSql.clause);
+    Object.assign(params, hiddenSql.params);
+  }
   if (args.channel) {
     whereParts.push("channel = {channel:String}");
     params.channel = args.channel;
@@ -241,11 +257,11 @@ function buildFilters(args: SearchPodcastsArgs | SearchMapArgs): {
 
 export async function searchPodcasts(
   args: SearchPodcastsArgs,
-  deps: { ch: ClickHouseClient; embedder: EmbedderClient },
+  deps: { ch: ClickHouseClient; embedder: EmbedderClient; hidden?: HiddenChannels },
 ): Promise<SearchResult[]> {
   const vector = await deps.embedder.embedOne(args.query);
 
-  const { whereParts, params } = buildFilters(args);
+  const { whereParts, params } = buildFilters(args, deps.hidden);
   params.query_vec = vector;
   params.limit = args.limit;
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -328,11 +344,11 @@ export interface MapHit {
  */
 export async function searchMapPoints(
   args: SearchMapArgs,
-  deps: { ch: ClickHouseClient; embedder: EmbedderClient },
+  deps: { ch: ClickHouseClient; embedder: EmbedderClient; hidden?: HiddenChannels },
 ): Promise<MapHit[]> {
   const vector = await deps.embedder.embedOne(args.query);
 
-  const { whereParts, params } = buildFilters(args);
+  const { whereParts, params } = buildFilters(args, deps.hidden);
   whereParts.push("length(youtube_id) = 11");
   params.query_vec = vector;
   params.limit = args.limit;

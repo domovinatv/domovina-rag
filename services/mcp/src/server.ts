@@ -8,6 +8,7 @@ import {
 import type { ClickHouseClient } from "@clickhouse/client";
 import type { Pool } from "pg";
 
+import type { ChannelSettingsReader, SettingKey } from "./channel-settings.js";
 import type { Config } from "./config.js";
 import type { EmbedderClient } from "./embedder.js";
 import type { MeiliClient } from "./meili.js";
@@ -65,6 +66,9 @@ export interface ServerDeps {
   // (bez PG-a) vraćaju čistu "nedostupno" grešku.
   pg?: Pool;
   meili?: MeiliClient;
+  // Vlasnikove postavke kanala (katalog /v1/settings). SVI alati izostavljaju
+  // kanale s isključenim `ai_assistants`; pojedini alati i dodatne ključeve.
+  channelSettings: ChannelSettingsReader;
 }
 
 
@@ -84,6 +88,11 @@ const TOOL_NAMES = [
 
 
 export function createServer(deps: ServerDeps): Server {
+  // Skup isključenih kanala za jedan poziv alata. Ne baca: bez ijedne uspješne
+  // snimke kataloga vraća prazan skup (čitač nije fail-closed, odluka 701).
+  const hiddenFor = (...extra: SettingKey[]) =>
+    deps.channelSettings.hidden(["ai_assistants", ...extra]);
+
   // `icons` + `title` + `websiteUrl` su standardna polja Implementation-a iz MCP
   // schema 2025-11-25 — claude.ai i druge UI klijente čitaju ih iz initialize
   // response-a i prikazuju brand logo (umjesto default globe ikone).
@@ -220,6 +229,7 @@ export function createServer(deps: ServerDeps): Server {
         const results = await searchPodcasts(parsed.data, {
           ch: deps.ch,
           embedder: deps.embedder,
+          hidden: await hiddenFor(),
         });
         // Wrap u objekt + always-on `recommended_companions` hint za empirijski
         // test (2026-05-17). Cilj: dokumentirati Magisterium AI MCP kao
@@ -254,7 +264,10 @@ export function createServer(deps: ServerDeps): Server {
         };
       }
       try {
-        const results = await listEpisodes(parsed.data, { ch: deps.ch });
+        const results = await listEpisodes(parsed.data, {
+          ch: deps.ch,
+          hidden: await hiddenFor(),
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
         };
@@ -283,7 +296,10 @@ export function createServer(deps: ServerDeps): Server {
         };
       }
       try {
-        const result = await getEpisode(parsed.data, { ch: deps.ch });
+        const result = await getEpisode(parsed.data, {
+          ch: deps.ch,
+          hidden: await hiddenFor(),
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -316,6 +332,10 @@ export function createServer(deps: ServerDeps): Server {
         const results = await countMentions(parsed.data, {
           ch: deps.ch,
           embedder: deps.embedder,
+          // Grupiranje po govorniku je podatak o osobama → poštuje i persons_mentions.
+          hidden: await (parsed.data.group_by === "speaker"
+            ? hiddenFor("persons_mentions")
+            : hiddenFor()),
         });
         return {
           content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
@@ -351,7 +371,11 @@ export function createServer(deps: ServerDeps): Server {
         };
       }
       try {
-        const result = await findInTranscript(parsed.data, { meili: deps.meili, ch: deps.ch });
+        const result = await findInTranscript(parsed.data, {
+          meili: deps.meili,
+          ch: deps.ch,
+          hidden: await hiddenFor("transcript_subtitles"),
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -386,7 +410,11 @@ export function createServer(deps: ServerDeps): Server {
         };
       }
       try {
-        const hub = await getPerson(parsed.data, { ch: deps.ch, pg: deps.pg });
+        const hub = await getPerson(parsed.data, {
+          ch: deps.ch,
+          pg: deps.pg,
+          hidden: await hiddenFor("persons_mentions"),
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(hub, null, 2) }],
         };
@@ -418,6 +446,7 @@ export function createServer(deps: ServerDeps): Server {
       try {
         const info = await getServerInfo(parsed.data, {
           ch: deps.ch,
+          hidden: await hiddenFor(),
           serviceName: deps.config.serviceName,
           serviceVersion: deps.config.serviceVersion,
           publicBaseUrl: deps.config.publicBaseUrl,
@@ -446,7 +475,10 @@ export function createServer(deps: ServerDeps): Server {
         };
       }
       try {
-        const results = await listChannels(parsed.data, { ch: deps.ch });
+        const results = await listChannels(parsed.data, {
+          ch: deps.ch,
+          hidden: await hiddenFor(),
+        });
         return {
           content: [
             { type: "text", text: JSON.stringify(results, null, 2) },

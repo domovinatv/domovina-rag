@@ -38,6 +38,7 @@ import { MeiliClient } from "./meili.js";
 import { makeRateLimit } from "./rate-limit.js";
 import { mountPublicApi } from "./public-api.js";
 import { createServer } from "./server.js";
+import { ChannelSettingsSource } from "./channel-settings.js";
 
 
 async function main() {
@@ -47,10 +48,17 @@ async function main() {
   const meili = config.meiliUrl && config.meiliSegmentsKey
     ? new MeiliClient(config.meiliUrl, config.meiliSegmentsKey)
     : undefined;
+  // Jedna snimka postavki kanala za cijeli proces (MCP sesije + javni API).
+  // Zagrij je odmah, da prvi upit ne čeka katalog.
+  const channelSettings = new ChannelSettingsSource({
+    url: config.channelSettingsUrl,
+    ttlMs: config.channelSettingsTtlMs,
+  });
+  void channelSettings.refresh();
 
   if (config.transport === "stdio") {
     console.error(`[mcp] ${config.serviceName} v${config.serviceVersion} → stdio`);
-    const server = createServer({ config, ch, embedder, meili });
+    const server = createServer({ config, ch, embedder, meili, channelSettings });
     const transport = new StdioServerTransport();
     await server.connect(transport);
     return;
@@ -113,7 +121,7 @@ async function main() {
   // Public deterministic search REST API (GET/POST /api/search) — NE-MCP,
   // bez OAuth-a, za domovina.ai frontend. CORS allow-lista + per-IP rate limit.
   if (config.publicSearchEnabled) {
-    mountPublicApi(app, { ch, embedder, pg, config });
+    mountPublicApi(app, { ch, embedder, pg, config, channelSettings });
   }
 
   // Browser landing — GET / s Accept: text/html (NE application/json ili SSE)
@@ -253,7 +261,7 @@ async function main() {
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
         });
-        const server = createServer({ config, ch, embedder, pg, meili });
+        const server = createServer({ config, ch, embedder, pg, meili, channelSettings });
         transport.onclose = () => {
           if (transport.sessionId) sessions.delete(transport.sessionId);
         };

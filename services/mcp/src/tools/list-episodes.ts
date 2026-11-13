@@ -8,6 +8,8 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
 
+import { HiddenChannels, hiddenChannelsSql } from "../channel-settings.js";
+
 
 export const ListEpisodesInput = z.object({
   channel: z
@@ -126,12 +128,18 @@ function parseEpisodeTitle(raw: string): string | null {
 
 export async function listEpisodes(
   args: ListEpisodesArgs,
-  deps: { ch: ClickHouseClient },
+  deps: { ch: ClickHouseClient; hidden?: HiddenChannels },
 ): Promise<EpisodeSummary[]> {
   const params: Record<string, unknown> = {
     limit: args.limit,
   };
   const whereParts: string[] = [];
+  // Postavke kanala: isključeni kanali ne ulaze u popis (u WHERE, prije LIMIT-a).
+  const hiddenSql = hiddenChannelsSql(deps.hidden ?? HiddenChannels.EMPTY, "rag_chunks.channel");
+  if (hiddenSql) {
+    whereParts.push(hiddenSql.clause);
+    Object.assign(params, hiddenSql.params);
+  }
   // NAPOMENA: WHERE kolone moraju biti kvalificirane s `rag_chunks.` jer SELECT
   // ima `any(channel) AS channel` i `toString(any(upload_date)) AS upload_date` —
   // CH inače rezolvira nekvalificirani naziv u SELECT alias agregata i puca s

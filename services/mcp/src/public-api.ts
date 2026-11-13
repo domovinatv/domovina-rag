@@ -15,6 +15,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Pool } from "pg";
 import { z } from "zod";
 
+import type { ChannelSettingsReader, SettingKey } from "./channel-settings.js";
 import type { Config } from "./config.js";
 import type { EmbedderClient } from "./embedder.js";
 import {
@@ -39,6 +40,42 @@ export interface PublicApiDeps {
   embedder: EmbedderClient;
   pg: Pool;
   config: Config;
+  channelSettings: ChannelSettingsReader;
+}
+
+// `/api/search` dijele tri potrošača s različitim prekidačem vlasnika kanala
+// (matrica §4/§16/§17, §C-11): paleta pretrage u aplikaciji, AI asistenti i
+// „povezano” u portalu vijesti. Klijent kaže u koju svrhu traži.
+export const SEARCH_PURPOSES = {
+  search: "in_app_search",
+  assistant: "ai_assistants",
+  news: "news_portal",
+} as const satisfies Record<string, SettingKey>;
+
+export type SearchPurpose = keyof typeof SEARCH_PURPOSES;
+
+/**
+ * `purpose` iz upita → ključ postavki. Bez parametra = `search` (stari buildovi
+ * aplikacije ga ne šalju). Nepoznata vrijednost je greška klijenta, ne tihi
+ * `search` — inače bi tipfeler u vijestima zaobišao `news_portal`.
+ */
+export function parsePurpose(
+  raw: unknown,
+): { ok: true; purpose: SearchPurpose; key: SettingKey } | { ok: false; message: string } {
+  if (raw === undefined || raw === null || raw === "") {
+    return { ok: true, purpose: "search", key: SEARCH_PURPOSES.search };
+  }
+  const v = typeof raw === "string" ? raw.trim().toLowerCase() : null;
+  if (v !== null && Object.prototype.hasOwnProperty.call(SEARCH_PURPOSES, v)) {
+    const purpose = v as SearchPurpose;
+    return { ok: true, purpose, key: SEARCH_PURPOSES[purpose] };
+  }
+  return {
+    ok: false,
+    message:
+      `purpose mora biti jedno od: ${Object.keys(SEARCH_PURPOSES).join(", ")} ` +
+      `(dobiveno: ${JSON.stringify(raw)})`,
+  };
 }
 
 // Per-IP sliding window. Odvojen od MCP per-client_id limitera jer public
@@ -126,7 +163,7 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
 
   // Kompaktni odgovor za mapu: hits = [[youtube_id, t_sec, score]…]. Array-of-
   // arrays, ne objekti — pri 300-500 pogodaka ključevi bi bili većina payloada.
-  const handleSearchMap = (src: Record<string, unknown>, res: Response) => {
+  const handleSearchMap = (src: Record<string, unknown>, key: SettingKey, res: Response) => {
     const parsed = SearchMapInput.safeParse({
       query: src.q ?? src.query,
       channel: src.channel,
@@ -143,7 +180,9 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
       return;
     }
 
-    searchMapPoints(parsed.data, { ch: deps.ch, embedder: deps.embedder })
+    deps.channelSettings
+      .hidden([key])
+      .then((hidden) => searchMapPoints(parsed.data, { ch: deps.ch, embedder: deps.embedder, hidden }))
       .then((hits) => {
         res.setHeader("Cache-Control", "public, max-age=300");
         res.json({
@@ -169,10 +208,16 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
         ? (req.body as Record<string, unknown>)
         : (req.query as Record<string, unknown>);
 
+    const purpose = parsePurpose(src.purpose);
+    if (!purpose.ok) {
+      res.status(400).json({ error: "invalid_purpose", detail: purpose.message });
+      return;
+    }
+
     // `mode=map` (stats.domovina.ai/map): isti retrieval, ali odgovor nosi samo
     // koordinate pogodaka — vidi searchMapPoints.
     if (String(src.mode ?? "").toLowerCase() === "map") {
-      handleSearchMap(src, res);
+      handleSearchMap(src, purpose.key, res);
       return;
     }
 
@@ -192,7 +237,9 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
       return;
     }
 
-    searchPodcasts(parsed.data, { ch: deps.ch, embedder: deps.embedder })
+    deps.channelSettings
+      .hidden([purpose.key])
+      .then((hidden) => searchPodcasts(parsed.data, { ch: deps.ch, embedder: deps.embedder, hidden }))
       .then((results) => {
         // Deterministički rezultati → kratki CDN/browser cache smanjuje
         // ponovljene embeddinge za iste upite (npr. as-you-type repeat).
@@ -222,7 +269,9 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
       return;
     }
 
-    getPerson(parsed.data, { ch: deps.ch, pg: deps.pg })
+    deps.channelSettings
+      .hidden(["persons_mentions"])
+      .then((hidden) => getPerson(parsed.data, { ch: deps.ch, pg: deps.pg, hidden }))
       .then((hub) => {
         // Deterministički → kratki CDN/browser cache (person stranica je stabilna
         // do sljedećeg ingesta; 5 min je siguran kompromis svježine/tereta).
@@ -251,7 +300,9 @@ export function mountPublicApi(app: Express, deps: PublicApiDeps): void {
   const handlePersons = (req: Request, res: Response) => {
     if (!rateLimit(req, res)) return; // 429 already sent
 
-    listPersons({ ch: deps.ch, pg: deps.pg })
+    deps.channelSettings
+      .hidden(["persons_mentions"])
+      .then((hidden) => listPersons({ ch: deps.ch, pg: deps.pg, hidden }))
       .then((index) => {
         // 15 min: indeks se mijenja tek s ingestom, a mijenja ga i ručna
         // kuracija (exclude/opt-out) — duže bi značilo da uklanjanje osobe

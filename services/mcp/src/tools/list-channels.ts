@@ -7,6 +7,8 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
 
+import { HiddenChannels, hiddenChannelsSql } from "../channel-settings.js";
+
 
 export const ListChannelsInput = z.object({
   sort_by: z
@@ -50,8 +52,10 @@ interface ChannelRow {
 
 export async function listChannels(
   args: ListChannelsArgs,
-  deps: { ch: ClickHouseClient },
+  deps: { ch: ClickHouseClient; hidden?: HiddenChannels },
 ): Promise<ChannelStats[]> {
+  // Postavke kanala: vlasnik je isključio AI asistente → kanala nema na popisu.
+  const hiddenSql = hiddenChannelsSql(deps.hidden ?? HiddenChannels.EMPTY);
   const orderBy =
     args.sort_by === "channel"
       ? "channel ASC"
@@ -67,12 +71,14 @@ export async function listChannels(
       toString(min(upload_date)) AS first_upload,
       toString(max(upload_date)) AS latest_upload
     FROM rag_chunks
+    ${hiddenSql ? `WHERE ${hiddenSql.clause}` : ""}
     GROUP BY channel
     ORDER BY ${orderBy}
   `;
 
   const resultSet = await deps.ch.query({
     query: sql,
+    ...(hiddenSql ? { query_params: hiddenSql.params } : {}),
     format: "JSONEachRow",
   });
   const rows = (await resultSet.json()) as ChannelRow[];

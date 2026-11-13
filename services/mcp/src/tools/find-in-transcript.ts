@@ -12,6 +12,7 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
 
+import { HiddenChannels } from "../channel-settings.js";
 import { meiliQuote, type MeiliClient } from "../meili.js";
 
 const INDEX = "segments";
@@ -214,7 +215,7 @@ export function formatTimestamp(sec: number): string {
 
 export async function findInTranscript(
   args: FindInTranscriptArgs,
-  deps: { meili: MeiliClient; ch: ClickHouseClient },
+  deps: { meili: MeiliClient; ch: ClickHouseClient; hidden?: HiddenChannels },
 ): Promise<FindInTranscriptResult> {
   const effectiveQuery = args.word_forms ? toWordFormsQuery(args.query) : args.query.trim();
   const inEpisode = Boolean(args.youtube_id);
@@ -224,6 +225,12 @@ export async function findInTranscript(
   if (args.youtube_id) filters.push(`youtube_id = ${meiliQuote(args.youtube_id)}`);
   if (args.channel) filters.push(`channel = ${meiliQuote(args.channel)}`);
   if (args.speaker) filters.push(`speaker = ${meiliQuote(args.speaker)}`);
+  // Postavke kanala (ai_assistants, transcript_subtitles): filtar ide u Meili upit,
+  // ne nakon njega, da `limit` i broj pogodaka po epizodi ostanu točni.
+  const hidden = deps.hidden ?? HiddenChannels.EMPTY;
+  if (hidden.size > 0) {
+    filters.push(`channel NOT IN [${hidden.rawValues().map(meiliQuote).join(", ")}]`);
+  }
 
   const res = await deps.meili.search<SegmentDoc>(INDEX, {
     q: effectiveQuery,

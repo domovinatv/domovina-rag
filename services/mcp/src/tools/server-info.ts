@@ -13,6 +13,8 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
 
+import { HiddenChannels, hiddenChannelsSql } from "../channel-settings.js";
+
 
 export const ServerInfoInput = z.object({});
 
@@ -94,6 +96,7 @@ export async function getServerInfo(
   _args: ServerInfoArgs,
   deps: {
     ch: ClickHouseClient;
+    hidden?: HiddenChannels;
     serviceName: string;
     serviceVersion: string;
     publicBaseUrl: string;
@@ -110,6 +113,8 @@ export async function getServerInfo(
     earliest_upload: null,
     latest_upload: null,
   };
+  // Postavke kanala: brojke korpusa ne uključuju kanale isključene za AI asistente.
+  const hiddenSql = hiddenChannelsSql(deps.hidden ?? HiddenChannels.EMPTY);
   try {
     const resultSet = await deps.ch.query({
       query: `
@@ -120,7 +125,9 @@ export async function getServerInfo(
           toString(min(upload_date)) AS earliest_upload,
           toString(max(upload_date)) AS latest_upload
         FROM rag_chunks
+        ${hiddenSql ? `WHERE ${hiddenSql.clause}` : ""}
       `,
+      ...(hiddenSql ? { query_params: hiddenSql.params } : {}),
       format: "JSONEachRow",
     });
     const rows = (await resultSet.json()) as StatsRow[];

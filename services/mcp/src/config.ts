@@ -36,6 +36,9 @@ export interface Config {
   publicSearchEnabled: boolean;
   publicSearchAllowedOrigins: string[];
   publicSearchRatePerMinute: number;
+  // Vlasnikove postavke kanala (katalog /v1/settings). Snimka u memoriji, TTL u ms.
+  channelSettingsUrl: string;
+  channelSettingsTtlMs: number;
   // OAuth GC cron.
   oauthGcIntervalHours: number;
   oauthGcRetentionDays: number;
@@ -86,5 +89,11 @@ export function loadConfig(): Config {
       .map((o) => o.trim())
       .filter(Boolean),
     publicSearchRatePerMinute: parseInt(optional("PUBLIC_SEARCH_RATE_PER_MINUTE", "30"), 10),
+    channelSettingsUrl: optional(
+      "CHANNEL_SETTINGS_URL",
+      "https://domovina.ai/api/katalog/v1/settings",
+    ),
+    channelSettingsTtlMs:
+      parseInt(optional("CHANNEL_SETTINGS_TTL_SECONDS", "60"), 10) * 1000,
   };
 }

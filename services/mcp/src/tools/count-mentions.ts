@@ -11,6 +11,8 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { z } from "zod";
 
+import { HiddenChannels, hiddenChannelsSql } from "../channel-settings.js";
+
 import type { EmbedderClient } from "../embedder.js";
 
 
@@ -108,7 +110,7 @@ interface AggregateRow {
 
 export async function countMentions(
   args: CountMentionsArgs,
-  deps: { ch: ClickHouseClient; embedder: EmbedderClient },
+  deps: { ch: ClickHouseClient; embedder: EmbedderClient; hidden?: HiddenChannels },
 ): Promise<MentionCount[]> {
   const vector = await deps.embedder.embedOne(args.query);
 
@@ -121,6 +123,13 @@ export async function countMentions(
   const whereParts: string[] = [
     "cosineDistance(embedding, {query_vec:Array(Float32)}) <= {threshold:Float32}",
   ];
+  // Postavke kanala: isključeni kanali ne ulaze u brojanje (skup bira pozivatelj —
+  // ai_assistants, a za group_by=speaker i persons_mentions).
+  const hiddenSql = hiddenChannelsSql(deps.hidden ?? HiddenChannels.EMPTY);
+  if (hiddenSql) {
+    whereParts.push(hiddenSql.clause);
+    Object.assign(params, hiddenSql.params);
+  }
   if (args.channel) {
     whereParts.push("channel = {channel:String}");
     params.channel = args.channel;
