@@ -88,7 +88,9 @@ flowchart TD
     SPKLOCAL --> SPKCLOUD["sync-speakers.sh --cloud<br/>(cloud person hub)"]
     SPKCLOUD --> PMLOCAL["sync-person-mentions.sh<br/>(lokalni person_mentions)"]
     PMLOCAL --> PMCLOUD["sync-person-mentions.sh --cloud<br/>(cloud person_mentions)"]
-    PMCLOUD --> VMAP["sync-vector-map.sh<br/>(mapa isječaka, 7a)"]
+    PMCLOUD --> PRLOCAL["sync-programs.sh<br/>(programi stranaka → lokalni CH, 6c)"]
+    PRLOCAL --> PRCLOUD["sync-programs.sh --cloud<br/>(program_chunks → cloud CH)"]
+    PRCLOUD --> VMAP["sync-vector-map.sh<br/>(mapa isječaka, 7a)"]
     VMAP --> PMAP["sync-person-map.sh<br/>(mapa osoba, 7b)"]
     PMAP --> STATS["sync-stats.sh --cloud --deploy<br/>(stats.json + obje mape → CF Pages)"]
     STATS --> DONE(["log + exit"])
@@ -102,6 +104,8 @@ flowchart TD
     style SPKCLOUD fill:#1a3d3d,color:#fff
     style PMLOCAL fill:#1a3d3d,color:#fff
     style PMCLOUD fill:#1a3d3d,color:#fff
+    style PRLOCAL fill:#1a365d,color:#fff
+    style PRCLOUD fill:#1a365d,color:#fff
     style VMAP fill:#3d2a5c,color:#fff
     style PMAP fill:#3d2a5c,color:#fff
     style STATS fill:#3d2a5c,color:#fff
@@ -116,6 +120,15 @@ flowchart TD
 > **person_mentions** je poseban: derivat je CH `episode_mentions`, ali izvor je
 > UVIJEK **lokalni** CH (`summary.mentioned_people` živi u lokalnom summary.json,
 > nikad se ne push-a u cloud CH), pa i `--cloud` mod čita lokalni CH a piše cloud PG.
+
+> **program_chunks** (Kompas stranaka, 6c) NIJE derivat `rag_chunks`: izvor je
+> `chunks.jsonl` iz susjednog repoa `stranke.domovina.ai` (gitignored ondje, ne
+> kopira se ovamo). Put je ipak isti kao za korpus: ETL (`python -m etl programs`)
+> embeda bge-m3 **lokalno**, a `--cloud` samo preslika lokalni CH u cloud CH,
+> delta po `doc_id`-u. Obična noć je no-op: ETL usporedi potpis svakog dokumenta
+> (chunk_id, text_hash, metadata, stranke) s CH-om i ne zove embedder; `--cloud`
+> usporedi potpise lokalno vs cloud i ne šalje ništa. Ako embedder nije gore, a
+> nešto treba embedati, dokumenti se odgode uz WARN (rc 0), idući run ih uzima.
 
 Svaki derivat-korak je **best-effort** (WARN, ne ruši cron) i pokreće se samo ako
 je CH delta uspjela (`rc == 0`) — nema smisla re-indeksirati na temelju polovične
@@ -258,10 +271,11 @@ flowchart LR
         SG["Meili segments (delta)<br/>sync-meili-segments.sh"]
         SP["Person hub<br/>sync-speakers.sh ×2"]
         PM["person_mentions<br/>sync-person-mentions.sh ×2"]
+        PR["Programi stranaka<br/>sync-programs.sh ×2"]
         VM["Mapa isječaka<br/>sync-vector-map.sh"]
         PMAP["Mapa osoba<br/>sync-person-map.sh"]
         ST["Stats + deploy<br/>sync-stats.sh --deploy"]
-        CH --> ME --> SG --> SP --> PM --> VM --> PMAP --> ST
+        CH --> ME --> SG --> SP --> PM --> PR --> VM --> PMAP --> ST
     end
     subgraph MANUAL["RUČNO / na potrebu"]
         MCPD["MCP server (kod)<br/>Coolify Redeploy"]
@@ -279,6 +293,7 @@ flowchart LR
 | **Meili `segments`** (find_in_transcript) | dnevno 04:00, nakon `episodes` | launchd → `sync-meili-segments.sh` (lokalni samo ako je Meili gore) `&& --cloud`; delta po epizodi |
 | **Person hub** (PG speakers) | dnevno 04:00, nakon CH | launchd → `sync-speakers.sh --local && --cloud` |
 | **person_mentions** (PG, "spominje se u") | dnevno 04:00, nakon speakers | launchd → `sync-person-mentions.sh --local && --cloud` (izvor uvijek lokalni CH) |
+| **Programi stranaka** (CH `program_chunks`) | dnevno 04:00, nakon person_mentions; stvarna promjena samo kad stranke.domovina.ai regenerira `chunks.jsonl` | launchd → `sync-programs.sh && --cloud` (embed lokalno, delta po `doc_id`; bez promjena nema poziva embeddera ni prijenosa) |
 | **Mapa isječaka** (`vector-map.*`) | dnevno 04:00, nakon person huba | launchd → `sync-vector-map.sh` (preskače ako se broj chunkova nije promijenio; 5-10 min) |
 | **Mapa osoba** (`person-map.json`) | dnevno 04:00, nakon mape isječaka | launchd → `sync-person-map.sh` (preskače ako se chunkovi+spomeni nisu promijenili; ~30-50 s) |
 | **Stats dashboard** (`stats.json` + deploy) | dnevno 04:00, zadnji korak | launchd → `sync-stats.sh --cloud --deploy` → CF Pages (`stats.domovina.ai`) |
@@ -310,6 +325,10 @@ cd ~/git/domovinatv/domovina-rag
 ./scripts/sync-speakers.sh --cloud     # cloud person hub
 ./scripts/sync-person-mentions.sh          # lokalni person_mentions ("spominje se u")
 ./scripts/sync-person-mentions.sh --cloud  # cloud person_mentions (izvor: lokalni CH)
+./scripts/sync-programs.sh                 # programi stranaka → lokalni CH (embed na host embedderu)
+./scripts/sync-programs.sh --dry-run       # samo plan: novi / promijenjeni / za brisanje
+./scripts/sync-programs.sh --cloud         # lokalni program_chunks → cloud CH (delta po doc_id)
+./scripts/sync-programs.sh --cloud --dry-run
 
 # Snapshoti za stats.domovina.ai (pišu u ../domovina-stats/public/, nema --cloud):
 ./scripts/sync-vector-map.sh           # mapa isječaka (/map) — 5-10 min

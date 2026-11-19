@@ -116,3 +116,42 @@ docker exec domovina-rag-clickhouse-... clickhouse-client \
 ```
 
 Vidi [`docs/cloud_deployment_plan.md`](../../docs/cloud_deployment_plan.md) §3 i §5 za detalje.
+
+## Programi stranaka (`etl programs`)
+
+Kompas stranaka (repo `stranke.domovina.ai`) reže izborne, trajne i koalicijske
+programe stranaka u `data/raw/kompas/chunks.jsonl` (gitignored ondje; ovamo se
+NE kopira). `python -m etl programs` ih učita u CH `program_chunks`
+(shema u `infra/clickhouse/init.sql`), s bge-m3 embeddingom teksta.
+
+- **Stranke:** `party_ids` se spajaju s `data/kompas/liste_2024.json["stranke"]` u
+  paralelne nizove `party_names` / `party_short` / `party_slugs` (`''` kad
+  stranke nema u katalogu). Koalicijski dokument je jedan chunk s više stranaka.
+- **NULL → `''` / `0`**, `nesiguran` → `UInt8`, `text_hash` = sha256(text),
+  `metadata` = sirovi JSON (`sort_keys`).
+- **Idempotentno po `doc_id`:** potpis dokumenta = skup (chunk_id, text_hash,
+  metadata, party_*). Isti → preskoči bez embeddera; različit → embedaj, pa
+  `ALTER TABLE … DELETE WHERE doc_id = … SETTINGS mutations_sync = 2` i insert;
+  `doc_id` kojeg više nema u fajlu → obriši. Embedding se ponovno koristi po
+  `text_hash`, pa promjena samo metapodataka ne zove embedder. Stari redovi se
+  brišu tek kad su novi embeddinzi u ruci.
+- **Embedder:** batch ≤ 8 (tvrda granica), sekvencijalno. Ako nije dostupan, a
+  nešto treba embedati, ti dokumenti se odgode uz WARNING i rc 0.
+- Prazan `chunks.jsonl` je greška (inače bi prune ispraznio tablicu).
+
+```bash
+# Uobičajeno: kroz skriptu (ETL u kontejneru, fajlovi mountani read-only)
+./scripts/sync-programs.sh --dry-run    # plan bez embeddanja i pisanja
+./scripts/sync-programs.sh              # lokalni CH
+./scripts/sync-programs.sh --cloud      # lokalni CH → cloud CH (delta po doc_id)
+
+# Izravno (putanje: --input/--liste, ili $PROGRAMS_INPUT/$PROGRAMS_LISTE,
+# ili $STRANKE_REPO/data/..., default ../stranke.domovina.ai)
+docker compose --profile etl run --rm \
+  -v "$PWD/../stranke.domovina.ai/data/raw/kompas/chunks.jsonl:/programs/chunks.jsonl:ro" \
+  -v "$PWD/../stranke.domovina.ai/data/kompas/liste_2024.json:/programs/liste_2024.json:ro" \
+  etl programs --input /programs/chunks.jsonl --liste /programs/liste_2024.json --dry-run
+```
+
+Testovi (bez CH-a i bez modela): `uvx pytest services/etl/tests/test_programs.py`
+ili `python3 services/etl/tests/test_programs.py`.
