@@ -38,6 +38,50 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
 PARTITION BY toYYYYMM(upload_date)
 ORDER BY (channel, upload_date, episode_id, chunk_index);
 
+-- ─── Programi stranaka (Kompas stranaka, stranke.domovina.ai) ───────────────
+-- Izvor: stranke.domovina.ai data/raw/kompas/chunks.jsonl (izborni, trajni i
+-- koalicijski programi, isječeni po odjeljcima). Puni ga `python -m etl programs`
+-- (embed bge-m3 lokalno), a u cloud ide preko scripts/sync-programs.sh --cloud.
+-- Koalicijski dokument je JEDAN chunk s više stranaka: party_* su paralelni
+-- nizovi (party_names[i] pripada party_ids[i], '' kad stranka nije u katalogu).
+-- NULL iz JSONL-a postaje '' / 0. Idempotentnost: ETL uspoređuje po doc_id skup
+-- (chunk_id, text_hash, metadata, party_*) i dokument koji se promijenio briše
+-- i ubacuje cijeli, pa ORDER BY ne mora nositi verziju.
+-- Ovu tablicu na cloudu i lokalno kreira i scripts/sync-programs.sh (IF NOT
+-- EXISTS), jer se init.sql na postojećoj bazi NE re-runa.
+CREATE TABLE IF NOT EXISTS program_chunks (
+    chunk_id        String,                    -- prog_<doc_id>_<NNNN>
+    doc_id          String,                    -- 12 hex znakova sha256 dokumenta
+    chunk_index     UInt32,                    -- od 1
+    total_chunks    UInt32,
+    party_ids       Array(UInt32),             -- stranke.domovina.ai party_id
+    party_names     Array(String),             -- canonical_name, paralelno s party_ids
+    party_short     Array(String),             -- short_name ('' ako ga nema)
+    party_slugs     Array(String),             -- slug, paralelno s party_ids
+    list_id         String,                    -- izborna lista 2024. ('' = nema)
+    manjine_id      String,                    -- manjinska lista ('' = nema)
+    vrsta           LowCardinality(String),    -- 'izborni-2024' | 'trajni' | 'koalicijski'
+    izvor           LowCardinality(String),    -- 'web' | 'wayback'
+    nesiguran       UInt8,                     -- 1 = atribucija/izvor nesiguran
+    nesiguran_razlog String,
+    naslov          String,                    -- naslov dokumenta
+    url             String,
+    datum           String,                    -- 'YYYY-MM-DD' ili ''
+    page_from       UInt32,
+    page_to         UInt32,
+    section         String,                    -- naslov odjeljka
+    words           UInt32,
+    format          LowCardinality(String),    -- 'pdf' | 'html'
+    text            String,                    -- "<section>\n\n<tekst>", ide u embedder
+    text_hash       String,                    -- sha256 hex od text
+    embedding       Array(Float32) CODEC(NONE),
+    metadata        String,                    -- sirovi metadata JSON (sort_keys)
+    inserted_at     DateTime DEFAULT now(),
+
+    INDEX idx_embedding   embedding TYPE vector_similarity('hnsw', 'cosineDistance') GRANULARITY 1000
+) ENGINE = ReplacingMergeTree(inserted_at)
+ORDER BY (doc_id, chunk_index);
+
 -- ─── Speaker voice signatures (Faza 3 — multi-model per-speaker embeddings) ─
 CREATE TABLE IF NOT EXISTS speaker_voice_signatures (
     speaker_id      UInt64,                    -- FK na PG.speakers.id
