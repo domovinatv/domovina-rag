@@ -3,6 +3,7 @@
     python -m etl ingest --input /path/to/storage/output
     python -m etl ingest --input ... --channel cuspajz --limit 2
     python -m etl status
+    python -m etl programs [--input chunks.jsonl] [--liste liste_2024.json] [--dry-run]
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from .sources import (
     read_mentioned_people,
 )
 from .speakers import build_persons, slugify, _load_seed
+from . import programs as _programs
 
 
 log = logging.getLogger("etl")
@@ -319,6 +321,55 @@ def cmd_speakers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_programs(args: argparse.Namespace) -> int:
+    """Programi stranaka (Kompas) → CH `program_chunks`, idempotentno po doc_id."""
+    input_path = Path(args.input) if args.input else _programs.default_input()
+    liste_path = Path(args.liste) if args.liste else _programs.default_liste()
+    log.info("Programi: %s (stranke: %s)", input_path, liste_path)
+    file_docs = _programs.load_file_docs(input_path, liste_path)
+    log.info("Pronađeno %d dokumenata, %d chunkova",
+             len(file_docs), sum(len(v) for v in file_docs.values()))
+
+    embedder_url = os.environ.get("EMBEDDER_URL", "http://localhost:8008")
+    clients: list[EmbedderClient] = []
+
+    def get_embedder() -> EmbedderClient | None:
+        # Zove se SAMO kad nešto stvarno treba embedati; inače embedder ne
+        # mora ni biti gore (dnevni sync bez promjena ga ne dira).
+        client = EmbedderClient(embedder_url, max_retries=2)
+        clients.append(client)
+        try:
+            h = client.health()
+        except Exception as e:  # noqa: BLE001
+            log.warning("embedder %s ne odgovara (%s)", embedder_url, type(e).__name__)
+            return None
+        if not h.get("loaded", False):
+            log.warning("embedder %s nije učitao model (%s)", embedder_url, h)
+            return None
+        return client
+
+    ch = ChClient(ChConfig(url=_build_ch_url()))
+    try:
+        s = _programs.sync_programs(
+            ch, file_docs, get_embedder,
+            batch_size=args.batch_size, dry_run=args.dry_run,
+        )
+    finally:
+        ch.close()
+        for c in clients:
+            c.close()
+
+    p = s.plan
+    if args.dry_run or p.new or p.reload or p.prune:
+        for label, ids in (("novi", p.new), ("promijenjeni", p.reload), ("za brisanje", p.prune)):
+            if ids:
+                log.info("  %-12s %d: %s", label, len(ids), " ".join(ids))
+    if s.deferred:
+        log.warning("%d dokumenata odgođeno (embedder nije dostupan) — idući run ih uzima", s.deferred)
+    log.info(s.line(dry_run=args.dry_run))
+    return 1 if s.errors else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -372,6 +423,20 @@ def main(argv: list[str] | None = None) -> int:
     p_retry.add_argument("--limit", type=int, default=0, help="Retry samo prvih N propalih")
     p_retry.add_argument("--dry-run", action="store_true", help="Samo ispiši što fali, ne pokreni ingest")
     p_retry.set_defaults(func=cmd_retry_missing)
+
+    p_prog = sub.add_parser(
+        "programs",
+        help="Programi stranaka (Kompas, stranke.domovina.ai chunks.jsonl) → CH program_chunks",
+    )
+    p_prog.add_argument("--input", default=None,
+                        help="chunks.jsonl (default: $PROGRAMS_INPUT ili $STRANKE_REPO/data/raw/kompas/chunks.jsonl)")
+    p_prog.add_argument("--liste", default=None,
+                        help="liste_2024.json (default: $PROGRAMS_LISTE ili $STRANKE_REPO/data/kompas/liste_2024.json)")
+    p_prog.add_argument("--batch-size", type=int, default=_programs.DEFAULT_BATCH_SIZE,
+                        help=f"Tekstova po embed pozivu (max {_programs.MAX_BATCH_SIZE})")
+    p_prog.add_argument("--dry-run", action="store_true",
+                        help="Samo plan (skip/novi/promijenjeni/brisanje), bez embeddanja i pisanja")
+    p_prog.set_defaults(func=cmd_programs)
 
     args = p.parse_args(argv)
     return args.func(args)

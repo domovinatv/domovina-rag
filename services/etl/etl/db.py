@@ -7,6 +7,7 @@ CH drži chunkove (rag_chunks) + vector index.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Optional, Sequence
 from urllib.parse import urlparse
@@ -14,6 +15,10 @@ from urllib.parse import urlparse
 import clickhouse_connect
 import psycopg
 from psycopg.rows import dict_row
+
+
+# doc_id / chunk_id koji smiju ući u SQL literal (12-hex sha256 prefiks i slično).
+_SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 # ─────────── PostgreSQL ───────────────────────────────────────
@@ -277,3 +282,59 @@ class ChClient:
                 "metadata",
             ],
         )
+
+    # ─────────── program_chunks (Kompas stranaka) ───────────
+
+    def program_state(self) -> list[tuple]:
+        """Trenutno stanje `program_chunks` bez embeddinga (jeftino, ~1k redova).
+
+        Vraća (doc_id, chunk_id, text_hash, metadata, party_names, party_short,
+        party_slugs) po retku. FINAL kolabira eventualne neprimergane duplikate
+        istog (doc_id, chunk_index).
+        """
+        result = self.client.query(
+            """
+            SELECT doc_id, chunk_id, text_hash, metadata,
+                   party_names, party_short, party_slugs
+            FROM program_chunks FINAL
+            """
+        )
+        return [tuple(r) for r in result.result_rows]
+
+    def program_embeddings(self, text_hashes: Sequence[str]) -> dict[str, list[float]]:
+        """Postojeći embeddinzi po text_hash — da promjena samo metapodataka
+        (npr. naziv stranke) ne zove embedder za tekst koji je već embedan."""
+        if not text_hashes:
+            return {}
+        result = self.client.query(
+            """
+            SELECT text_hash, any(embedding)
+            FROM program_chunks
+            WHERE has({hashes:Array(String)}, text_hash) AND length(embedding) > 0
+            GROUP BY text_hash
+            """,
+            parameters={"hashes": list(text_hashes)},
+        )
+        return {r[0]: list(r[1]) for r in result.result_rows}
+
+    def delete_program_docs(self, doc_ids: Sequence[str]) -> None:
+        """Briše sve retke zadanih dokumenata. Klasični ALTER ... DELETE s
+        mutations_sync=2 (čeka kraj mutacije), isto kao sync-incremental.sh nad
+        rag_chunks na CH 24.10 — ne lightweight DELETE, koji uz vector_similarity
+        indeks nije provjeren. doc_id se ugrađuje kao literal (parametri u
+        mutacijama nisu pouzdani), pa se prije toga strogo validira."""
+        if not doc_ids:
+            return
+        for d in doc_ids:
+            if not _SAFE_ID.match(d):
+                raise ValueError(f"neispravan doc_id za DELETE: {d!r}")
+        in_list = ",".join(f"'{d}'" for d in doc_ids)
+        self.client.command(
+            f"ALTER TABLE program_chunks DELETE WHERE doc_id IN ({in_list}) "
+            "SETTINGS mutations_sync = 2"
+        )
+
+    def insert_program_chunks(self, rows: Sequence[Sequence], column_names: Sequence[str]) -> None:
+        if not rows:
+            return
+        self.client.insert("program_chunks", rows, column_names=list(column_names))
