@@ -51,6 +51,12 @@ import {
   PersonNotFoundError,
 } from "./tools/get-person.js";
 import {
+  formatProgramHits,
+  searchPrograms,
+  SearchProgramsInput,
+  searchProgramsJsonSchema,
+} from "./tools/search-programs.js";
+import {
   findInTranscript,
   FindInTranscriptInput,
   findInTranscriptJsonSchema,
@@ -83,6 +89,7 @@ const TOOL_NAMES = [
   "count_mentions",
   "get_person",
   "find_in_transcript",
+  "search_programs",
   "server_info",
 ] as const;
 
@@ -200,6 +207,22 @@ export function createServer(deps: ServerDeps): Server {
           "Marija) — typo pogotke provjeri u tekstu prije nego ih navedeš. " +
           "Svaki pogodak ima deep_link na točnu sekundu.",
         inputSchema: findInTranscriptJsonSchema,
+      },
+      {
+        name: "search_programs",
+        description:
+          "Semantička pretraga IZBORNIH PROGRAMA hrvatskih stranaka za " +
+          "parlamentarne izbore 2024. Koristi za pitanja što stranke OBEĆAVAJU, " +
+          "predlažu ili zastupaju u svojim programima (npr. 'što HDZ obećava za " +
+          "mirovine', 'tko predlaže porez na nekretnine'). Vraća doslovne odlomke " +
+          "s nazivom stranke, naslovom dokumenta, poglavljem, stranicom, URL-om i " +
+          "sličnošću. U odgovoru se OČEKUJE citat odlomka i navod dokumenta i " +
+          "stranice (\"str. 12\" ili \"web stranica\"). Koalicijski program " +
+          "navodi sve stranke koalicije. Odlomak označen s ⚠ dolazi iz nesigurnog " +
+          "izvora (npr. Wayback snimka) — to napomeni korisniku. `party` sužava " +
+          "na jednu stranku (ID, slug, kratica ili dio naziva). Ovo NIJE ono što " +
+          "su političari govorili u podcastima — za to search_podcasts.",
+        inputSchema: searchProgramsJsonSchema,
       },
       {
         name: "server_info",
@@ -429,6 +452,34 @@ export function createServer(deps: ServerDeps): Server {
         return {
           isError: true,
           content: [{ type: "text", text: `get_person failed: ${msg}` }],
+        };
+      }
+    }
+
+    if (req.params.name === "search_programs") {
+      // Postavke kanala ne vrijede: programi stranaka nisu sadržaj kanala.
+      const parsed = SearchProgramsInput.safeParse(req.params.arguments ?? {});
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            { type: "text", text: `Invalid arguments: ${parsed.error.message}` },
+          ],
+        };
+      }
+      try {
+        const hits = await searchPrograms(parsed.data, {
+          ch: deps.ch,
+          embedder: deps.embedder,
+        });
+        return {
+          content: [{ type: "text", text: formatProgramHits(hits, parsed.data) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: "text", text: `search_programs failed: ${msg}` }],
         };
       }
     }

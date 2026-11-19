@@ -94,6 +94,14 @@ Agregat: top N grupa (channel/speaker/month) po broju chunkova koji semantički 
 
 Argumenti: `query`, `group_by` (`channel`|`speaker`|`month`), `relevance_threshold` (0-1, default 0.4), `limit` (1-50, default 20), `min/max_upload_date?`, `channel?`.
 
+## Tool: `search_programs`
+
+Semantička pretraga izbornih programa hrvatskih stranaka za parlamentarne izbore 2024. (ClickHouse `program_chunks`, bge-m3, isti embedder kao `search_podcasts`). Za pitanja što stranke **obećavaju** u programima; odgovor je hrvatski tekst po pogotku: stranka (kratica, a za koaliciju sve stranke), naslov dokumenta, poglavlje, stranica (`str. 12`, `str. 12–13` ili `web stranica` za HTML), citat (tijelo odlomka, skraćeno na granici rečenice uz „…”), URL, sličnost i `chunk_id`. Odlomak iz nesigurnog izvora nosi napomenu `⚠ izvor: Wayback snimka — <razlog>`.
+
+Argumenti: `query` (2-500 znakova), `party?` (ID stranke, slug, kratica jednako, ili podniz službenog naziva od 3+ znaka; bez obzira na velika slova i čćžšđ; nepoznata stranka vraća poruku „Nije pronađen izborni program…”, filtar se ne ispušta), `limit` (default 5, veće vrijednosti se režu na 20).
+
+Postavke kanala se ovdje ne primjenjuju (programi nisu sadržaj kanala).
+
 ## Tool: `server_info`
 
 Vraća metadata o servisu i korpusu: verzija, build info (BUILD_SHA, BUILD_DATE env vars), dataset stats (channels/episodes/chunks counts + earliest/latest_upload), popis dostupnih tool-ova.

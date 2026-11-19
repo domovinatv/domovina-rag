@@ -96,9 +96,11 @@ describe("MCP alati (ai_assistants + po alatu)", () => {
     ["count_mentions", { query: "molitva", group_by: "speaker" }, ["domovina-tv", "kanal-b"]],
     ["get_person", { slug: "ana-horvat" }, ["domovina-tv", "kanal-b"]],
     ["server_info", {}, ["domovina-tv"]],
+    // Programi stranaka nisu sadržaj kanala → postavke kanala se ne primjenjuju.
+    ["search_programs", { query: "mirovine" }, []],
   ];
   for (const [name, args, expected] of cases) {
-    it(`${name} ${JSON.stringify(args)} → ${expected.join(", ")}`, async () => {
+    it(`${name} ${JSON.stringify(args)} → ${expected.join(", ") || "(ništa)"}`, async () => {
       calls.length = 0;
       await client.callTool({ name, arguments: args });
       assert.ok(calls.length > 0, "alat nije pitao ClickHouse");

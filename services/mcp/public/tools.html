@@ -220,6 +220,24 @@
           </td>
         </tr>
         <tr>
+          <td><code>search_programs</code></td>
+          <td>
+            Semantička pretraga <em>izbornih programa</em> hrvatskih stranaka za
+            parlamentarne izbore 2024. Za pitanja što stranke obećavaju ili
+            predlažu („što HDZ obećava za mirovine”). Vraća doslovne odlomke sa
+            strankom (za koaliciju sve stranke), naslovom dokumenta, poglavljem,
+            stranicom, poveznicom i sličnošću. Odlomci iz nesigurnog izvora (npr.
+            Wayback snimka) nose napomenu.
+          </td>
+          <td>
+            <div class="param-list">
+              <strong>query</strong> (string, obavezan): tema ili pitanje<br/>
+              <strong>party</strong> (string, neobavezan): ID, slug, kratica (HDZ, SDP, Možemo) ili dio naziva stranke<br/>
+              <strong>limit</strong> (broj, neobavezno): 1–20, zadano 5
+            </div>
+          </td>
+        </tr>
+        <tr>
           <td><code>server_info</code></td>
           <td>
             Vraća metapodatke o MCP servisu i stanju korpusa: verziju, build info,
