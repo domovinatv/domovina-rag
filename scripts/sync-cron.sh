@@ -215,6 +215,19 @@ if [ "$RC" -eq 0 ]; then
   ./scripts/sync-person-mentions.sh --cloud || warn "cloud person_mentions populate pao/nije deployan (nastavljam)."
 fi
 
+# ─── 6c. Programi stranaka (Kompas, CH program_chunks) ─────────────────────────
+# Izvor NIJE rag_chunks nego stranke.domovina.ai chunks.jsonl, ali put je isti:
+# embed lokalno (embedder je u ovom trenutku gore, korak 2), cloud samo dobije
+# kopiju. Obična noć je no-op: ETL uspoređuje potpis po doc_id-u i ne zove
+# embedder; --cloud uspoređuje potpise lokalno vs cloud i ništa ne šalje.
+# Lokalni MORA prije --cloud (cloud kopira lokalni CH).
+if [ "$RC" -eq 0 ]; then
+  echo "[cron] Programi stranaka (lokalni CH)..."
+  ./scripts/sync-programs.sh || warn "lokalni program_chunks sync pao (nastavljam)."
+  echo "[cron] Programi stranaka (cloud CH)..."
+  ./scripts/sync-programs.sh --cloud || warn "cloud program_chunks sync pao (nastavljam)."
+fi
+
 # ─── 7a. Regeneriraj vektorsku mapu (UMAP nad chunk embeddinzima) ─────────────
 # vector-map.{bin,json} je CH-derivat kao stats.json (Razina 2 dashboarda,
 # stats.domovina.ai/map). Izvor je LOKALNI CH (izvoz embeddinga ~560 MB — preko
